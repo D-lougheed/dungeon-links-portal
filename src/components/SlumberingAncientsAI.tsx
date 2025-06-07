@@ -12,17 +12,20 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let styleElement: HTMLLinkElement | null = null;
+    let scriptElement: HTMLScriptElement | null = null;
+
     // Load the n8n chat widget
-    const loadN8nChat = async () => {
+    const loadN8nChat = () => {
       try {
         // Create and load the CSS file
-        const styleElement = document.createElement('link');
+        styleElement = document.createElement('link');
         styleElement.rel = 'stylesheet';
         styleElement.href = 'https://unpkg.com/@n8n/chat/style.css';
         document.head.appendChild(styleElement);
 
         // Create and load the JavaScript file
-        const scriptElement = document.createElement('script');
+        scriptElement = document.createElement('script');
         scriptElement.src = 'https://unpkg.com/@n8n/chat/dist/index.js';
         scriptElement.onload = () => {
           // Initialize the chat widget once the script is loaded
@@ -37,27 +40,20 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
           console.error('Failed to load n8n chat script');
         };
         document.body.appendChild(scriptElement);
-
-        // Cleanup function
-        return () => {
-          if (styleElement.parentNode) {
-            styleElement.parentNode.removeChild(styleElement);
-          }
-          if (scriptElement.parentNode) {
-            scriptElement.parentNode.removeChild(scriptElement);
-          }
-        };
       } catch (error) {
         console.error('Failed to load n8n chat widget:', error);
       }
     };
 
-    const cleanup = loadN8nChat();
+    loadN8nChat();
 
     // Cleanup when component unmounts
     return () => {
-      if (cleanup && typeof cleanup === 'function') {
-        cleanup();
+      if (styleElement && styleElement.parentNode) {
+        styleElement.parentNode.removeChild(styleElement);
+      }
+      if (scriptElement && scriptElement.parentNode) {
+        scriptElement.parentNode.removeChild(scriptElement);
       }
       // Remove any existing chat widgets
       const chatElements = document.querySelectorAll('.n8n-chat');
