@@ -3,8 +3,8 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   ArrowLeft, 
   Bot, 
@@ -14,8 +14,10 @@ import {
   MapPin, 
   Scroll,
   Crown,
-  Swords
+  Swords,
+  Settings
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AIWorldAssistantProps {
   onBack: () => void;
@@ -28,54 +30,85 @@ interface Message {
   timestamp: Date;
 }
 
+interface PromptCustomization {
+  playerLevel: string | null;
+  groupSize: string | null;
+  sessionDifficulty: string | null;
+  encounterDifficulty: string | null;
+}
+
 const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       type: 'assistant',
-      content: "Hello, Dungeon Master! I'm your AI World Assistant. I can help you with world building, creating NPCs, developing plot hooks, generating locations, and answering D&D rules questions. What would you like to work on today?",
+      content: "Hello, Dungeon Master! I'm your AI World Assistant powered by ChatGPT. I can help you with world building, creating NPCs, developing plot hooks, generating locations, and answering D&D rules questions. Customize the settings above to get more tailored suggestions, then choose a quick prompt or ask me anything!",
       timestamp: new Date()
     }
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const [customization, setCustomization] = useState<PromptCustomization>({
+    playerLevel: null,
+    groupSize: null,
+    sessionDifficulty: null,
+    encounterDifficulty: null
+  });
 
   const quickPrompts = [
     {
       icon: Users,
       title: "Create an NPC",
-      prompt: "Create a detailed NPC for my campaign including their background, personality, and motivations."
+      basePrompt: "Create a detailed NPC for my campaign including their background, personality, and motivations."
     },
     {
       icon: MapPin,
       title: "Generate Location",
-      prompt: "Generate an interesting location for my campaign with a detailed description and potential plot hooks."
+      basePrompt: "Generate an interesting location for my campaign with a detailed description and potential plot hooks."
     },
     {
       icon: Scroll,
       title: "Plot Hook",
-      prompt: "Give me an engaging plot hook that could lead to an adventure for my party."
+      basePrompt: "Give me an engaging plot hook that could lead to an adventure for my party."
     },
     {
       icon: Crown,
       title: "Random Encounter",
-      prompt: "Create a random encounter appropriate for a mid-level party in a fantasy setting."
+      basePrompt: "Create a random encounter appropriate for a mid-level party in a fantasy setting."
     },
     {
       icon: Swords,
       title: "Magic Item",
-      prompt: "Design a unique magic item with an interesting backstory and balanced mechanics."
+      basePrompt: "Design a unique magic item with an interesting backstory and balanced mechanics."
     }
   ];
 
+  const buildCustomizedPrompt = (basePrompt: string): string => {
+    let customizedPrompt = basePrompt;
+    const context: string[] = [];
+
+    if (customization.playerLevel) {
+      context.push(`for a level ${customization.playerLevel} party`);
+    }
+    if (customization.groupSize) {
+      context.push(`with ${customization.groupSize} players`);
+    }
+    if (customization.sessionDifficulty) {
+      context.push(`session difficulty ${customization.sessionDifficulty}/10`);
+    }
+    if (customization.encounterDifficulty) {
+      context.push(`encounter difficulty ${customization.encounterDifficulty}/10`);
+    }
+
+    if (context.length > 0) {
+      customizedPrompt += ` Please tailor this ${context.join(', ')}.`;
+    }
+
+    return customizedPrompt;
+  };
+
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
-
-    if (!apiKey.trim()) {
-      alert('Please enter your Perplexity API key first.');
-      return;
-    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -89,29 +122,13 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      const response = await fetch('/api/chat-gpt', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama-3.1-sonar-small-128k-online',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an expert D&D Dungeon Master assistant. Help with world building, NPCs, plot hooks, locations, rules questions, and campaign management. Be creative, detailed, and provide practical advice for running D&D campaigns. Format your responses clearly and include specific details that a DM can use directly in their game.'
-            },
-            {
-              role: 'user',
-              content: inputMessage
-            }
-          ],
-          temperature: 0.7,
-          top_p: 0.9,
-          max_tokens: 1000,
-          frequency_penalty: 1,
-          presence_penalty: 0
+          message: inputMessage
         }),
       });
 
@@ -123,7 +140,7 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        content: data.choices[0].message.content,
+        content: data.response,
         timestamp: new Date()
       };
 
@@ -133,7 +150,7 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        content: "I apologize, but I'm having trouble connecting right now. Please check your API key and try again.",
+        content: "I apologize, but I'm having trouble connecting right now. Please try again later.",
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -142,8 +159,9 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
     }
   };
 
-  const handleQuickPrompt = (prompt: string) => {
-    setInputMessage(prompt);
+  const handleQuickPrompt = (basePrompt: string) => {
+    const customizedPrompt = buildCustomizedPrompt(basePrompt);
+    setInputMessage(customizedPrompt);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -151,6 +169,15 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  const resetCustomization = () => {
+    setCustomization({
+      playerLevel: null,
+      groupSize: null,
+      sessionDifficulty: null,
+      encounterDifficulty: null
+    });
   };
 
   return (
@@ -169,39 +196,106 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
             <Bot className="h-8 w-8" />
             <div>
               <h1 className="text-2xl font-bold">AI World Assistant</h1>
-              <p className="text-amber-100 text-sm">Your intelligent D&D companion</p>
+              <p className="text-amber-100 text-sm">Powered by ChatGPT</p>
             </div>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-6 max-w-6xl">
-        {/* API Key Input */}
+        {/* Customization Controls */}
         <Card className="mb-6 border-amber-200">
           <CardHeader>
             <CardTitle className="text-amber-900 flex items-center">
-              <Sparkles className="h-5 w-5 mr-2" />
-              Setup Required
+              <Settings className="h-5 w-5 mr-2" />
+              Customize Your Prompts
             </CardTitle>
             <CardDescription>
-              Enter your Perplexity API key to enable AI assistance. Get one at{' '}
-              <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noopener noreferrer" className="text-amber-700 underline">
-                perplexity.ai/settings/api
-              </a>
+              Set these values to get more tailored AI suggestions for your campaign
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <Label htmlFor="apiKey" className="text-amber-800">Perplexity API Key</Label>
-              <Input
-                id="apiKey"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your Perplexity API key..."
-                className="border-amber-300 focus:border-amber-500 focus:ring-amber-500"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <div className="space-y-2">
+                <Label htmlFor="playerLevel" className="text-amber-800">Player Level</Label>
+                <Select value={customization.playerLevel || ""} onValueChange={(value) => 
+                  setCustomization(prev => ({ ...prev, playerLevel: value || null }))
+                }>
+                  <SelectTrigger className="border-amber-300 focus:border-amber-500">
+                    <SelectValue placeholder="Select level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 20 }, (_, i) => i + 1).map(level => (
+                      <SelectItem key={level} value={level.toString()}>
+                        Level {level}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="groupSize" className="text-amber-800">Group Size</Label>
+                <Select value={customization.groupSize || ""} onValueChange={(value) => 
+                  setCustomization(prev => ({ ...prev, groupSize: value || null }))
+                }>
+                  <SelectTrigger className="border-amber-300 focus:border-amber-500">
+                    <SelectValue placeholder="Select size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map(size => (
+                      <SelectItem key={size} value={size.toString()}>
+                        {size} Player{size > 1 ? 's' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="sessionDifficulty" className="text-amber-800">Session Difficulty</Label>
+                <Select value={customization.sessionDifficulty || ""} onValueChange={(value) => 
+                  setCustomization(prev => ({ ...prev, sessionDifficulty: value || null }))
+                }>
+                  <SelectTrigger className="border-amber-300 focus:border-amber-500">
+                    <SelectValue placeholder="Select difficulty" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map(difficulty => (
+                      <SelectItem key={difficulty} value={difficulty.toString()}>
+                        {difficulty}/10
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="encounterDifficulty" className="text-amber-800">Encounter Difficulty</Label>
+                <Select value={customization.encounterDifficulty || ""} onValueChange={(value) => 
+                  setCustomization(prev => ({ ...prev, encounterDifficulty: value || null }))
+                }>
+                  <SelectTrigger className="border-amber-300 focus:border-amber-500">
+                    <SelectValue placeholder="Select difficulty" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map(difficulty => (
+                      <SelectItem key={difficulty} value={difficulty.toString()}>
+                        {difficulty}/10
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+            
+            <Button 
+              onClick={resetCustomization}
+              variant="outline"
+              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+            >
+              Reset All
+            </Button>
           </CardContent>
         </Card>
 
@@ -211,7 +305,7 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
             <Card className="border-amber-200 h-fit">
               <CardHeader>
                 <CardTitle className="text-amber-900">Quick Prompts</CardTitle>
-                <CardDescription>Click to use these common requests</CardDescription>
+                <CardDescription>Click to use these customized requests</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {quickPrompts.map((prompt, index) => {
@@ -219,7 +313,7 @@ const AIWorldAssistant: React.FC<AIWorldAssistantProps> = ({ onBack }) => {
                   return (
                     <Button
                       key={index}
-                      onClick={() => handleQuickPrompt(prompt.prompt)}
+                      onClick={() => handleQuickPrompt(prompt.basePrompt)}
                       variant="outline"
                       className="w-full justify-start text-left h-auto py-3 border-amber-300 hover:bg-amber-50"
                     >
