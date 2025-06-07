@@ -1,5 +1,5 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, Sparkles } from 'lucide-react';
@@ -9,35 +9,59 @@ interface SlumberingAncientsAIProps {
 }
 
 const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) => {
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    // Dynamically load the n8n chat widget
+    // Load the n8n chat widget
     const loadN8nChat = async () => {
       try {
-        // Create a script element to load n8n chat styles
+        // Create and load the CSS file
         const styleElement = document.createElement('link');
         styleElement.rel = 'stylesheet';
         styleElement.href = 'https://unpkg.com/@n8n/chat/style.css';
         document.head.appendChild(styleElement);
 
-        // Dynamically import and initialize the chat widget
-        const { createChat } = await import('https://unpkg.com/@n8n/chat/dist/index.js');
-        
-        createChat({
-          webhookUrl: 'https://n8n.the-guild.io/webhook/23c49d79-5abb-4f61-ae06-3d9d95962011/chat'
-        });
+        // Create and load the JavaScript file
+        const scriptElement = document.createElement('script');
+        scriptElement.src = 'https://unpkg.com/@n8n/chat/dist/index.js';
+        scriptElement.onload = () => {
+          // Initialize the chat widget once the script is loaded
+          if (window.n8nChat && chatContainerRef.current) {
+            window.n8nChat.createChat({
+              webhookUrl: 'https://n8n.the-guild.io/webhook/23c49d79-5abb-4f61-ae06-3d9d95962011/chat',
+              target: chatContainerRef.current
+            });
+          }
+        };
+        scriptElement.onerror = () => {
+          console.error('Failed to load n8n chat script');
+        };
+        document.body.appendChild(scriptElement);
+
+        // Cleanup function
+        return () => {
+          if (styleElement.parentNode) {
+            styleElement.parentNode.removeChild(styleElement);
+          }
+          if (scriptElement.parentNode) {
+            scriptElement.parentNode.removeChild(scriptElement);
+          }
+        };
       } catch (error) {
         console.error('Failed to load n8n chat widget:', error);
       }
     };
 
-    loadN8nChat();
+    const cleanup = loadN8nChat();
 
-    // Cleanup function to remove the chat widget when component unmounts
+    // Cleanup when component unmounts
     return () => {
-      const chatContainer = document.querySelector('.n8n-chat');
-      if (chatContainer) {
-        chatContainer.remove();
+      if (cleanup && typeof cleanup === 'function') {
+        cleanup();
       }
+      // Remove any existing chat widgets
+      const chatElements = document.querySelectorAll('.n8n-chat');
+      chatElements.forEach(element => element.remove());
     };
   }, []);
 
@@ -91,7 +115,7 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
 
         <Card className="border-purple-200">
           <CardContent className="p-0">
-            <div id="n8n-chat" className="min-h-[600px] p-4">
+            <div ref={chatContainerRef} className="min-h-[600px] p-4">
               {/* The n8n chat widget will be injected here */}
               <div className="flex items-center justify-center h-64 text-purple-600">
                 <div className="text-center">
@@ -107,5 +131,14 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
     </div>
   );
 };
+
+// Extend the Window interface to include n8nChat
+declare global {
+  interface Window {
+    n8nChat?: {
+      createChat: (config: { webhookUrl: string; target?: HTMLElement }) => void;
+    };
+  }
+}
 
 export default SlumberingAncientsAI;
