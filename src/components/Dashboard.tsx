@@ -13,10 +13,12 @@ import {
   Sword,
   Crown,
   Compass,
-  Bot
+  Bot,
+  Sparkles
 } from 'lucide-react';
 import { useState } from 'react';
-import AIWorldAssistant from './AIWorldAssistant';
+import GeneralAIAssistant from './GeneralAIAssistant';
+import SlumberingAncientsAI from './SlumberingAncientsAI';
 
 const Dashboard = () => {
   const { logout } = useAuth();
@@ -24,10 +26,17 @@ const Dashboard = () => {
 
   const features = [
     {
-      id: "ai-world-assistant",
-      title: "AI World Assistant",
+      id: "general-ai-assistant",
+      title: "General AI Assistant",
       description: "Get AI help with world building, NPCs, and campaign ideas",
       icon: Bot,
+      status: "Available"
+    },
+    {
+      id: "slumbering-ancients-ai",
+      title: "Slumbering Ancients AI Assistant",
+      description: "Specialized AI assistant for ancient lore and mysteries",
+      icon: Sparkles,
       status: "Available"
     },
     {
@@ -94,8 +103,12 @@ const Dashboard = () => {
     }
   };
 
-  if (activeFeature === "ai-world-assistant") {
-    return <AIWorldAssistant onBack={() => setActiveFeature(null)} />;
+  if (activeFeature === "general-ai-assistant") {
+    return <GeneralAIAssistant onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "slumbering-ancients-ai") {
+    return <SlumberingAncientsAI onBack={() => setActiveFeature(null)} />;
   }
 
   return (
