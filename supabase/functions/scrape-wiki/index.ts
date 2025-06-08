@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -44,17 +45,30 @@ serve(async (req) => {
     const getAllMarkdownFiles = async (folderId: string, path: string = '') => {
       console.log(`🔍 SCANNING FOLDER: ${folderId} (${path || 'root'})`)
       
-      const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink)`
+      // Updated API call format with proper encoding and fields
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink)&pageSize=100`
       
       try {
+        console.log(`🌐 API URL: ${url}`)
         const response = await fetch(url)
+        console.log(`📡 API Response Status: ${response.status} ${response.statusText}`)
+        
         if (!response.ok) {
-          throw new Error(`Google Drive API error: ${response.status} ${response.statusText}`)
+          const errorText = await response.text()
+          console.error(`💥 API Error Response Body: ${errorText}`)
+          throw new Error(`Google Drive API error: ${response.status} ${response.statusText} - ${errorText}`)
         }
         
         const data = await response.json()
         const files = data.files || []
         console.log(`📁 Found ${files.length} items in folder`)
+        
+        if (files.length === 0) {
+          console.log(`⚠️  No files found. This could mean:`)
+          console.log(`   - The folder is empty`)
+          console.log(`   - The API key doesn't have access to this folder`)
+          console.log(`   - The folder ID is incorrect`)
+        }
         
         const allFiles = []
         
@@ -74,6 +88,8 @@ serve(async (req) => {
               path: currentPath,
               webViewLink: file.webViewLink
             })
+          } else {
+            console.log(`📄 Skipping non-markdown file: ${currentPath} (${file.mimeType})`)
           }
         }
         
@@ -93,7 +109,9 @@ serve(async (req) => {
       try {
         const response = await fetch(url)
         if (!response.ok) {
-          throw new Error(`Failed to download ${fileName}: ${response.status}`)
+          const errorText = await response.text()
+          console.error(`💥 Download Error: ${response.status} ${response.statusText} - ${errorText}`)
+          throw new Error(`Failed to download ${fileName}: ${response.status} - ${errorText}`)
         }
         
         const content = await response.text()
@@ -131,7 +149,9 @@ serve(async (req) => {
         })
 
         if (!response.ok) {
-          throw new Error(`OpenAI API error: ${response.status}`)
+          const errorText = await response.text()
+          console.error(`💥 OpenAI Error: ${response.status} ${response.statusText} - ${errorText}`)
+          throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
         }
 
         const data = await response.json()
@@ -184,7 +204,7 @@ serve(async (req) => {
           pagesScraped: 0,
           pagesSkipped: 0,
           totalDiscovered: 0,
-          message: 'No markdown files found in the specified folder' 
+          message: 'No markdown files found in the specified folder. Check folder permissions and API key access.' 
         }),
         { 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
