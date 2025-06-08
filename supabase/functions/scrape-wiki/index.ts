@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -13,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { incremental = false, getMissing = false, streaming = false } = await req.json()
+    const { incremental = false, getMissing = false, streaming = false, maxFiles = 50 } = await req.json()
     
     // Get configuration from environment variables
     const googleApiKey = Deno.env.get('GDrive_APIKey')
@@ -38,6 +37,7 @@ serve(async (req) => {
     console.log(`📊 CONFIGURATION:`)
     console.log(`   - Folder ID: ${folderId}`)
     console.log(`   - API Key: ${googleApiKey.substring(0, 10)}...`)
+    console.log(`   - Max Files per Run: ${maxFiles}`)
     console.log(`   - Target: All .md files in folder and subfolders`)
 
     // Get OpenAI API key
@@ -46,23 +46,31 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured')
     }
 
-    // Enhanced rate limiting with adaptive delays
-    let requestDelay = 800 // Start with 800ms delay (reduced from 1000ms)
-    const maxDelay = 15000 // Maximum 15 seconds (increased from 10s)
-    const delayMultiplier = 1.8 // Increased multiplier for faster backoff
+    // Enhanced rate limiting with more conservative settings for missing files scan
+    let requestDelay = getMissing ? 1500 : 800 // Longer delay for missing files
+    const maxDelay = getMissing ? 30000 : 15000 // Longer max delay for missing files
+    const delayMultiplier = 2.0 // More aggressive backoff
     let consecutiveErrors = 0
     let successfulRequests = 0
+    let totalRequestsMade = 0
+    const maxTotalRequests = getMissing ? 200 : 500 // Limit total requests to prevent timeouts
 
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-    // Function to make API calls with improved retry logic
-    const makeApiCall = async (url: string, retries = 3): Promise<Response> => {
+    // Function to make API calls with improved retry logic and timeout protection
+    const makeApiCall = async (url: string, retries = 2): Promise<Response> => {
+      // Check if we've made too many requests
+      if (totalRequestsMade >= maxTotalRequests) {
+        throw new Error(`Request limit reached (${maxTotalRequests}) to prevent timeout`)
+      }
+
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-          console.log(`🌐 API Call attempt ${attempt}/${retries}: ${url.replace(googleApiKey, 'API_KEY_HIDDEN')}`)
+          totalRequestsMade++
+          console.log(`🌐 API Call ${totalRequestsMade}/${maxTotalRequests} attempt ${attempt}/${retries}`)
           
           // Add random jitter to prevent synchronized requests
-          const jitter = Math.random() * 200
+          const jitter = Math.random() * 500
           await sleep(requestDelay + jitter)
           
           const response = await fetch(url)
@@ -73,12 +81,12 @@ serve(async (req) => {
               console.log(`⚠️  Rate limit detected on attempt ${attempt}, increasing delay...`)
               consecutiveErrors++
               
-              // Exponential backoff with longer delays
+              // More aggressive exponential backoff for missing files
               const backoffDelay = Math.min(requestDelay * Math.pow(delayMultiplier, attempt), maxDelay)
-              requestDelay = backoffDelay
+              requestDelay = Math.min(backoffDelay, maxDelay)
               
               if (attempt < retries) {
-                const waitTime = backoffDelay * (attempt + 1) + Math.random() * 2000
+                const waitTime = backoffDelay * (attempt + 2) + Math.random() * 3000
                 console.log(`⏰ Waiting ${waitTime}ms before retry...`)
                 await sleep(waitTime)
                 continue
@@ -95,9 +103,10 @@ serve(async (req) => {
           consecutiveErrors = 0
           successfulRequests++
           
-          // Only reduce delay after several successful requests
-          if (successfulRequests > 3 && requestDelay > 800) {
-            requestDelay = Math.max(800, requestDelay * 0.9)
+          // Only reduce delay after several successful requests and keep minimum higher for missing files
+          const minDelay = getMissing ? 1200 : 800
+          if (successfulRequests > 5 && requestDelay > minDelay) {
+            requestDelay = Math.max(minDelay, requestDelay * 0.95)
             console.log(`✅ Success streak! Reducing delay to ${requestDelay}ms`)
             successfulRequests = 0 // Reset counter
           }
@@ -109,7 +118,7 @@ serve(async (req) => {
             throw error
           }
           // Progressive delay between retries with jitter
-          const retryDelay = 3000 * attempt + Math.random() * 2000
+          const retryDelay = 5000 * attempt + Math.random() * 3000
           await sleep(retryDelay)
         }
       }
@@ -148,12 +157,11 @@ serve(async (req) => {
     const getAllMarkdownFiles = async (folderId: string, path: string = '') => {
       console.log(`🔍 SCANNING FOLDER: ${folderId} (${path || 'root'})`)
       
-      // Enhanced API call with fields for modification time
-      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime)&pageSize=100`
-      
       try {
-        const response = await makeApiCall(url)
+        // Enhanced API call with fields for modification time
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime)&pageSize=100`
         
+        const response = await makeApiCall(url)
         const data = await response.json()
         const files = data.files || []
         console.log(`📁 Found ${files.length} items in folder`)
@@ -216,7 +224,6 @@ serve(async (req) => {
       
       try {
         const response = await makeApiCall(url)
-        
         const content = await response.text()
         console.log(`✅ Downloaded ${fileName}: ${content.length} characters`)
         return content
@@ -289,23 +296,29 @@ serve(async (req) => {
     console.log(`\n🌐 STARTING GOOGLE DRIVE DISCOVERY`)
     const markdownFiles = await getAllMarkdownFiles(folderId)
     
-    const missingFiles = getMissing ? markdownFiles.length : 0
+    // Limit files to process to prevent timeouts
+    const filesToProcess = markdownFiles.slice(0, maxFiles)
+    const missingFiles = getMissing ? filesToProcess.length : 0
     
     console.log(`\n📊 DISCOVERY SUMMARY:`)
     console.log(`   - Mode: ${mode}`)
-    console.log(`   - Total .md files found: ${markdownFiles.length}`)
+    console.log(`   - Total .md files discovered: ${markdownFiles.length}`)
+    console.log(`   - Files to process this run: ${filesToProcess.length}`)
     if (getMissing) {
       console.log(`   - Missing files to process: ${missingFiles}`)
     }
+    if (markdownFiles.length > maxFiles) {
+      console.log(`   - Remaining files for next run: ${markdownFiles.length - maxFiles}`)
+    }
 
-    if (markdownFiles.length === 0) {
+    if (filesToProcess.length === 0) {
       const message = getMissing ? 'No missing files found - all files are up to date!' : 'No markdown files found in the specified folder or timeframe.'
       return new Response(
         JSON.stringify({ 
           success: true, 
           pagesScraped: 0,
           pagesSkipped: 0,
-          totalDiscovered: 0,
+          totalDiscovered: markdownFiles.length,
           missingFiles: 0,
           incremental,
           getMissing,
@@ -322,99 +335,122 @@ serve(async (req) => {
     let pagesSkipped = 0
     let rateLimitErrors = 0
     const processedFiles = []
+    const errors = []
 
-    for (const file of markdownFiles) {
-      console.log(`\n📄 PROCESSING ${pagesScraped + pagesSkipped + 1}/${markdownFiles.length}: ${file.path}`)
+    for (const file of filesToProcess) {
+      console.log(`\n📄 PROCESSING ${pagesScraped + pagesSkipped + 1}/${filesToProcess.length}: ${file.path}`)
       
-      const content = await downloadFileContent(file.id, file.name)
-      if (!content) {
-        console.log(`⏭️  SKIPPED: Could not download content`)
-        pagesSkipped++
-        
-        // Check if this was a rate limit error
-        if (consecutiveErrors > 0) {
-          rateLimitErrors++
+      // Check if we're approaching timeout (leave some buffer time)
+      const timeElapsed = Date.now() - Date.now()
+      if (totalRequestsMade >= maxTotalRequests) {
+        console.log(`⏰ Stopping processing to prevent timeout (${totalRequestsMade} requests made)`)
+        break
+      }
+      
+      try {
+        const content = await downloadFileContent(file.id, file.name)
+        if (!content) {
+          console.log(`⏭️  SKIPPED: Could not download content`)
+          pagesSkipped++
+          
+          // Check if this was a rate limit error
+          if (consecutiveErrors > 0) {
+            rateLimitErrors++
+            errors.push(`Rate limit error downloading ${file.name}`)
+          }
+          continue
         }
-        continue
-      }
 
-      // Extract title and clean content
-      const title = extractTitle(content, file.name)
-      const cleanedContent = cleanMarkdownContent(content)
-      
-      if (cleanedContent.length < 20) {
-        console.log(`⏭️  SKIPPED: Content too short after cleaning`)
-        pagesSkipped++
-        continue
-      }
-
-      const contentHash = await generateHash(content)
-      
-      // Check if content exists and is unchanged (unless we're specifically looking for missing files)
-      if (!getMissing) {
-        const { data: existing } = await supabase
-          .from('wiki_content')
-          .select('id, content_hash')
-          .eq('url', file.webViewLink || `gdrive://${file.id}`)
-          .single()
-
-        if (existing && existing.content_hash === contentHash) {
-          console.log(`⏭️  UNCHANGED: Content identical`)
+        // Extract title and clean content
+        const title = extractTitle(content, file.name)
+        const cleanedContent = cleanMarkdownContent(content)
+        
+        if (cleanedContent.length < 20) {
+          console.log(`⏭️  SKIPPED: Content too short after cleaning`)
           pagesSkipped++
           continue
         }
-      }
 
-      // Generate embedding
-      const embedding = await generateEmbedding(cleanedContent)
-      if (!embedding) {
-        console.log(`❌ EMBEDDING FAILED`)
+        const contentHash = await generateHash(content)
+        
+        // Check if content exists and is unchanged (unless we're specifically looking for missing files)
+        if (!getMissing) {
+          const { data: existing } = await supabase
+            .from('wiki_content')
+            .select('id, content_hash')
+            .eq('url', file.webViewLink || `gdrive://${file.id}`)
+            .single()
+
+          if (existing && existing.content_hash === contentHash) {
+            console.log(`⏭️  UNCHANGED: Content identical`)
+            pagesSkipped++
+            continue
+          }
+        }
+
+        // Generate embedding
+        const embedding = await generateEmbedding(cleanedContent)
+        if (!embedding) {
+          console.log(`❌ EMBEDDING FAILED`)
+          pagesSkipped++
+          errors.push(`Embedding generation failed for ${file.name}`)
+          continue
+        }
+
+        // Save to database
+        const { error } = await supabase
+          .from('wiki_content')
+          .upsert({
+            url: file.webViewLink || `gdrive://${file.id}`,
+            title: title,
+            content: cleanedContent.substring(0, 8000),
+            content_hash: contentHash,
+            embedding: embedding,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'url'
+          })
+
+        if (error) {
+          console.error(`💥 DATABASE ERROR:`, error)
+          pagesSkipped++
+          errors.push(`Database error for ${file.name}: ${error.message}`)
+          continue
+        }
+
+        pagesScraped++
+        processedFiles.push(file.path)
+        console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars)`)
+        
+        // Brief pause between successful operations
+        await sleep(200)
+      } catch (error) {
+        console.error(`💥 Error processing ${file.name}:`, error)
         pagesSkipped++
-        continue
+        errors.push(`Processing error for ${file.name}: ${error.message}`)
       }
-
-      // Save to database
-      const { error } = await supabase
-        .from('wiki_content')
-        .upsert({
-          url: file.webViewLink || `gdrive://${file.id}`,
-          title: title,
-          content: cleanedContent.substring(0, 8000),
-          content_hash: contentHash,
-          embedding: embedding,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'url'
-        })
-
-      if (error) {
-        console.error(`💥 DATABASE ERROR:`, error)
-        pagesSkipped++
-        continue
-      }
-
-      pagesScraped++
-      processedFiles.push(file.path)
-      console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars)`)
-      
-      // Brief pause between successful operations
-      await sleep(100)
     }
 
     console.log(`\n🏁 GOOGLE DRIVE SCRAPING COMPLETE!`)
     console.log(`   📊 FINAL STATISTICS:`)
     console.log(`   - Mode: ${mode}`)
     console.log(`   - Files discovered: ${markdownFiles.length}`)
+    console.log(`   - Files processed this run: ${filesToProcess.length}`)
     console.log(`   - Files successfully scraped: ${pagesScraped}`)
     console.log(`   - Files skipped: ${pagesSkipped}`)
     console.log(`   - Rate limit errors: ${rateLimitErrors}`)
+    console.log(`   - Total API requests made: ${totalRequestsMade}`)
     if (getMissing) {
       console.log(`   - Missing files found: ${missingFiles}`)
     }
 
-    const message = getMissing 
+    let message = getMissing 
       ? `Missing files scan complete: Found ${missingFiles} missing files, processed ${pagesScraped} successfully`
       : `Google Drive scraping complete: Found ${markdownFiles.length} .md files, scraped ${pagesScraped} files${incremental ? ' (incremental mode)' : ''}`
+
+    if (markdownFiles.length > maxFiles) {
+      message += ` (${markdownFiles.length - maxFiles} files remaining for next run)`
+    }
 
     return new Response(
       JSON.stringify({ 
@@ -422,11 +458,13 @@ serve(async (req) => {
         pagesScraped,
         pagesSkipped,
         totalDiscovered: markdownFiles.length,
+        filesProcessedThisRun: filesToProcess.length,
         missingFiles: getMissing ? missingFiles : undefined,
         rateLimitErrors,
         incremental,
         getMissing,
         processedFiles: processedFiles.slice(0, 50),
+        errors: errors.slice(0, 10), // Include first 10 errors for debugging
         message 
       }),
       { 

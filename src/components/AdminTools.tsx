@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw, Clock, Zap, Search } from 'lucide-react';
+import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw, Clock, Zap, Search, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -30,6 +30,8 @@ interface ProgressState {
   stage?: string;
   errors: string[];
   mode?: string;
+  filesProcessedThisRun?: number;
+  hasMoreFiles?: boolean;
 }
 
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
@@ -119,7 +121,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       const startTime = Date.now();
       
       const { data, error } = await supabase.functions.invoke('scrape-wiki', {
-        body: { incremental }
+        body: { incremental, maxFiles: 50 }
       });
 
       const duration = Date.now() - startTime;
@@ -138,11 +140,15 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
 
       console.log('✅ Edge function completed successfully:', {
         totalDiscovered: data.totalDiscovered,
+        filesProcessedThisRun: data.filesProcessedThisRun,
         pagesScraped: data.pagesScraped,
         pagesSkipped: data.pagesSkipped,
         rateLimitErrors: data.rateLimitErrors,
         success: data.success
       });
+
+      // Check if there are more files to process
+      const hasMoreFiles = data.totalDiscovered > (data.filesProcessedThisRun || 0);
 
       // Update progress state with final results
       setProgressState(prev => ({
@@ -151,27 +157,48 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         totalFiles: data.totalDiscovered || 0,
         processedFiles: data.pagesScraped || 0,
         skippedFiles: data.pagesSkipped || 0,
+        filesProcessedThisRun: data.filesProcessedThisRun || 0,
+        hasMoreFiles,
         stage: 'Complete',
-        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
+        errors: [
+          ...(data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []),
+          ...(data.errors || [])
+        ]
       }));
 
       const modeText = incremental ? 'incremental (recent changes only)' : 'full';
-      const statusMessage = `Successfully completed ${modeText} scraping: ${data.pagesScraped || 0} files out of ${data.totalDiscovered || 0} discovered .md files`;
+      let statusMessage = `Successfully completed ${modeText} scraping: ${data.pagesScraped || 0} files processed`;
+      
+      if (hasMoreFiles) {
+        statusMessage += ` (${data.totalDiscovered - (data.filesProcessedThisRun || 0)} files remaining for next run)`;
+      }
+      
       setScraperStatus(statusMessage);
       
       setScrapingDetails({
         pagesProcessed: data.pagesScraped || 0,
         pagesSkipped: data.pagesSkipped || 0,
         stage: 'Complete',
-        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
+        errors: [
+          ...(data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []),
+          ...(data.errors || [])
+        ]
       });
       
       await loadWikiStats();
       await loadWikiPages();
       
+      let toastDescription = `Successfully processed ${data.pagesScraped || 0} markdown files`;
+      if (hasMoreFiles) {
+        toastDescription += `. ${data.totalDiscovered - (data.filesProcessedThisRun || 0)} files remaining for next run.`;
+      }
+      if ((data.rateLimitErrors || 0) > 0) {
+        toastDescription += ` Note: ${data.rateLimitErrors} files failed due to rate limiting.`;
+      }
+      
       toast({
         title: `${incremental ? 'Incremental' : 'Full'} Google Drive Scraping Complete`,
-        description: `Successfully processed ${data.pagesScraped || 0} markdown files from ${data.totalDiscovered || 0} discovered files.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
+        description: toastDescription,
       });
     } catch (error) {
       console.error('💥 Scraping error:', error);
@@ -236,8 +263,9 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       
       const startTime = Date.now();
       
+      // Use smaller batch size for missing files to prevent timeouts
       const { data, error } = await supabase.functions.invoke('scrape-wiki', {
-        body: { getMissing: true }
+        body: { getMissing: true, maxFiles: 25 }
       });
 
       const duration = Date.now() - startTime;
@@ -257,11 +285,15 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       console.log('✅ Missing files scan completed successfully:', {
         totalDiscovered: data.totalDiscovered,
         missingFiles: data.missingFiles,
+        filesProcessedThisRun: data.filesProcessedThisRun,
         pagesScraped: data.pagesScraped,
         pagesSkipped: data.pagesSkipped,
         rateLimitErrors: data.rateLimitErrors,
         success: data.success
       });
+
+      // Check if there are more files to process
+      const hasMoreFiles = data.totalDiscovered > (data.filesProcessedThisRun || 0);
 
       // Update progress state with final results
       setProgressState(prev => ({
@@ -270,26 +302,47 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         totalFiles: data.totalDiscovered || 0,
         processedFiles: data.pagesScraped || 0,
         skippedFiles: data.pagesSkipped || 0,
+        filesProcessedThisRun: data.filesProcessedThisRun || 0,
+        hasMoreFiles,
         stage: 'Complete',
-        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
+        errors: [
+          ...(data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []),
+          ...(data.errors || [])
+        ]
       }));
 
-      const statusMessage = `Missing files scan complete: Found ${data.missingFiles || 0} missing files, successfully processed ${data.pagesScraped || 0} out of ${data.totalDiscovered || 0} discovered files`;
+      let statusMessage = `Missing files scan complete: Found ${data.missingFiles || 0} missing files, successfully processed ${data.pagesScraped || 0}`;
+      
+      if (hasMoreFiles) {
+        statusMessage += ` (${data.totalDiscovered - (data.filesProcessedThisRun || 0)} files remaining for next run)`;
+      }
+      
       setScraperStatus(statusMessage);
       
       setScrapingDetails({
         pagesProcessed: data.pagesScraped || 0,
         pagesSkipped: data.pagesSkipped || 0,
         stage: 'Complete',
-        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
+        errors: [
+          ...(data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []),
+          ...(data.errors || [])
+        ]
       });
       
       await loadWikiStats();
       await loadWikiPages();
       
+      let toastDescription = `Found and processed ${data.pagesScraped || 0} missing files`;
+      if (hasMoreFiles) {
+        toastDescription += `. ${data.totalDiscovered - (data.filesProcessedThisRun || 0)} files remaining for next run.`;
+      }
+      if ((data.rateLimitErrors || 0) > 0) {
+        toastDescription += ` Note: ${data.rateLimitErrors} files failed due to rate limiting.`;
+      }
+      
       toast({
         title: "Missing Files Scan Complete",
-        description: `Found and processed ${data.pagesScraped || 0} missing files out of ${data.missingFiles || 0} identified.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
+        description: toastDescription,
       });
     } catch (error) {
       console.error('💥 Missing files scan error:', error);
@@ -424,8 +477,35 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
               stage={progressState.stage}
               errors={progressState.errors}
               mode={progressState.mode}
+              filesProcessedThisRun={progressState.filesProcessedThisRun}
+              hasMoreFiles={progressState.hasMoreFiles}
             />
           </div>
+        )}
+
+        {/* Show continuation notice if there are more files */}
+        {progressState.hasMoreFiles && !progressState.isActive && (
+          <Card className="border-amber-200 bg-amber-50 mb-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-amber-900 flex items-center text-lg">
+                <AlertTriangle className="h-5 w-5 mr-2" />
+                More Files Available
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-amber-800 mb-3">
+                There are {progressState.totalFiles - (progressState.filesProcessedThisRun || 0)} more files that can be processed. 
+                The scraper processes files in chunks to prevent timeouts and rate limiting issues.
+              </p>
+              <Button 
+                onClick={progressState.mode === 'missing' ? handleGetMissing : () => handleScrapeGoogleDrive(progressState.mode === 'incremental')}
+                disabled={isLoading || isIncrementalLoading || isMissingLoading}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                Continue Processing Remaining Files
+              </Button>
+            </CardContent>
+          </Card>
         )}
 
         {/* Debug Information */}
@@ -444,6 +524,8 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <div>• Current Stage: {progressState.stage || 'None'}</div>
                   <div>• Mode: {progressState.mode || 'None'}</div>
                   <div>• Files: {progressState.processedFiles}/{progressState.totalFiles} (Skipped: {progressState.skippedFiles})</div>
+                  <div>• This Run: {progressState.filesProcessedThisRun || 0} files processed</div>
+                  <div>• More Files: {progressState.hasMoreFiles ? 'Yes' : 'No'}</div>
                   <div>• Errors: {progressState.errors.length}</div>
                   <div className="text-xs text-blue-600 mt-2">Check browser console (F12) for detailed logs.</div>
                 </div>
@@ -461,7 +543,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
             </CardTitle>
             <CardDescription>
               Automatically scan the configured Google Drive folder for .md files and update the knowledge base. 
-              Use incremental scan for recent changes only (last 7 days) or missing files scan to get files that failed due to rate limiting.
+              Files are processed in chunks to prevent timeouts and rate limiting issues.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -473,7 +555,8 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <li>• Target Folder: Configured (via secrets)</li>
                   <li>• Scan Mode: Recursive (includes subfolders)</li>
                   <li>• File Types: .md (Markdown files only)</li>
-                  <li>• Rate Limiting: Enhanced with exponential backoff and adaptive delays</li>
+                  <li>• Processing: Chunked (50 files per run for full/incremental, 25 for missing)</li>
+                  <li>• Rate Limiting: Enhanced with conservative delays and timeout protection</li>
                   <li>• Incremental Mode: Available (scans last 7 days)</li>
                   <li>• Missing Files Mode: Available (targets missing files only)</li>
                 </ul>
@@ -528,12 +611,12 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
               <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
                 <h4 className="font-medium text-amber-900 mb-1">💡 Pro Tips</h4>
                 <ul className="text-sm text-amber-800 space-y-1">
-                  <li>• Use <strong>Quick Scrape</strong> for daily updates - only scans files modified in the last 7 days</li>
-                  <li>• Use <strong>Get Missing Files</strong> to recover files that failed due to rate limiting</li>
-                  <li>• Use <strong>Full Scrape</strong> for initial setup or after major changes</li>
-                  <li>• If you see 403 errors, wait 5-10 minutes before trying again</li>
-                  <li>• The scraper now has enhanced rate limiting with adaptive delays and better error recovery</li>
-                  <li>• Check the debug information above and browser console for detailed progress tracking</li>
+                  <li>• <strong>Chunked Processing:</strong> Files are processed in batches to prevent timeouts</li>
+                  <li>• <strong>Continue Processing:</strong> If more files remain, use the "Continue" button that appears</li>
+                  <li>• <strong>Quick Scrape:</strong> Only scans files modified in the last 7 days</li>
+                  <li>• <strong>Get Missing Files:</strong> Processes files not yet in the database (smaller batches)</li>
+                  <li>• <strong>Rate Limiting:</strong> Conservative delays prevent Google API issues</li>
+                  <li>• <strong>Error Recovery:</strong> Failed files are reported for manual investigation</li>
                 </ul>
               </div>
 
@@ -652,11 +735,12 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <li>• Vector embedding dimensions: 1536 (OpenAI compatible)</li>
                 <li>• Similarity search algorithm: Cosine similarity</li>
                 <li>• Content processing: Automatic markdown cleaning and embedding</li>
-                <li>• Update frequency: Manual via scraper (full or incremental)</li>
+                <li>• Update frequency: Manual via scraper (chunked processing)</li>
                 <li>• Source: Google Drive .md files (configured folder)</li>
                 <li>• Recursive folder scanning: Enabled</li>
                 <li>• Content deduplication: Hash-based change detection</li>
-                <li>• Rate limiting: Enhanced with exponential backoff and retry logic</li>
+                <li>• Rate limiting: Conservative with timeout protection</li>
+                <li>• Chunk size: 50 files (full/incremental), 25 files (missing)</li>
               </ul>
             </div>
           </CardContent>

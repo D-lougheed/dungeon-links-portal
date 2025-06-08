@@ -2,7 +2,7 @@
 import React from 'react';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Clock, FileText, CheckCircle, XCircle, AlertTriangle, Info, Download, Globe, Zap } from 'lucide-react';
+import { Clock, FileText, CheckCircle, XCircle, AlertTriangle, Info, Download, Globe, Zap, RefreshCw } from 'lucide-react';
 
 interface ScrapeProgressProps {
   isActive: boolean;
@@ -13,6 +13,8 @@ interface ScrapeProgressProps {
   stage?: string;
   errors?: string[];
   mode?: string;
+  filesProcessedThisRun?: number;
+  hasMoreFiles?: boolean;
 }
 
 interface ErrorStats {
@@ -32,9 +34,12 @@ const ScrapeProgress: React.FC<ScrapeProgressProps> = ({
   currentFile,
   stage,
   errors = [],
-  mode = 'scraping'
+  mode = 'scraping',
+  filesProcessedThisRun = 0,
+  hasMoreFiles = false
 }) => {
   const progressPercentage = totalFiles > 0 ? ((processedFiles + skippedFiles) / totalFiles) * 100 : 0;
+  const runProgressPercentage = filesProcessedThisRun > 0 ? ((processedFiles + skippedFiles) / filesProcessedThisRun) * 100 : 0;
   const successRate = (processedFiles + skippedFiles) > 0 ? (processedFiles / (processedFiles + skippedFiles)) * 100 : 0;
 
   // Categorize errors for better diagnostics
@@ -102,13 +107,39 @@ const ScrapeProgress: React.FC<ScrapeProgressProps> = ({
         <CardDescription className="text-blue-700 flex items-center">
           {getModeIcon()}
           <span className="ml-2">{getModeDescription()}</span>
+          {hasMoreFiles && !isActive && (
+            <span className="ml-2 bg-amber-100 text-amber-800 px-2 py-1 rounded-full text-xs font-medium">
+              Chunked Processing
+            </span>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Main Progress Bar */}
+        {/* Current Run Progress (when different from overall) */}
+        {filesProcessedThisRun > 0 && filesProcessedThisRun !== totalFiles && (
+          <div className="space-y-2">
+            <div className="flex justify-between items-center text-sm">
+              <span className="font-medium text-blue-900">Current Run Progress</span>
+              <span className="text-blue-700">
+                {processedFiles + skippedFiles} / {filesProcessedThisRun} files
+              </span>
+            </div>
+            <Progress 
+              value={runProgressPercentage} 
+              className="h-3"
+            />
+            <div className="text-xs text-blue-600 text-center">
+              {runProgressPercentage.toFixed(1)}% of current batch complete
+            </div>
+          </div>
+        )}
+
+        {/* Overall Progress Bar */}
         <div className="space-y-2">
           <div className="flex justify-between items-center text-sm">
-            <span className="font-medium text-blue-900">Overall Progress</span>
+            <span className="font-medium text-blue-900">
+              {filesProcessedThisRun > 0 && filesProcessedThisRun !== totalFiles ? 'Overall Progress' : 'Progress'}
+            </span>
             <span className="text-blue-700">
               {processedFiles + skippedFiles} / {totalFiles} files
             </span>
@@ -117,8 +148,14 @@ const ScrapeProgress: React.FC<ScrapeProgressProps> = ({
             value={progressPercentage} 
             className="h-3"
           />
-          <div className="text-xs text-blue-600 text-center">
-            {progressPercentage.toFixed(1)}% complete
+          <div className="flex justify-between text-xs text-blue-600">
+            <span>{progressPercentage.toFixed(1)}% complete</span>
+            {hasMoreFiles && (
+              <span className="flex items-center">
+                <RefreshCw className="h-3 w-3 mr-1" />
+                More files available
+              </span>
+            )}
           </div>
         </div>
 
@@ -149,11 +186,29 @@ const ScrapeProgress: React.FC<ScrapeProgressProps> = ({
               <FileText className="h-4 w-4 text-blue-600" />
               <div>
                 <div className="text-lg font-semibold text-blue-700">{totalFiles}</div>
-                <div className="text-xs text-blue-600">Total</div>
+                <div className="text-xs text-blue-600">
+                  {hasMoreFiles ? 'Discovered' : 'Total'}
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Chunking Information */}
+        {hasMoreFiles && filesProcessedThisRun > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <div className="flex items-center space-x-2 mb-2">
+              <Info className="h-4 w-4 text-amber-600" />
+              <span className="text-sm font-medium text-amber-900">Chunked Processing Information</span>
+            </div>
+            <div className="text-xs text-amber-800 space-y-1">
+              <div>• This run processed: {filesProcessedThisRun} files</div>
+              <div>• Remaining files: {totalFiles - filesProcessedThisRun}</div>
+              <div>• Processing in chunks prevents timeouts and reduces rate limiting</div>
+              <div>• Use the "Continue Processing" button to handle remaining files</div>
+            </div>
+          </div>
+        )}
 
         {/* Success Rate */}
         {(processedFiles + skippedFiles) > 0 && (
@@ -256,7 +311,7 @@ const ScrapeProgress: React.FC<ScrapeProgressProps> = ({
               </div>
               <div className="text-xs text-amber-800 space-y-1">
                 {errorStats.rateLimit > 0 && (
-                  <div>• <strong>Rate Limiting:</strong> Try waiting 10-15 minutes before retrying, or use incremental scan</div>
+                  <div>• <strong>Rate Limiting:</strong> Wait 10-15 minutes before retrying, chunked processing helps</div>
                 )}
                 {errorStats.permission > 0 && (
                   <div>• <strong>Permissions:</strong> Verify Google Drive folder sharing settings and API key permissions</div>
@@ -273,6 +328,9 @@ const ScrapeProgress: React.FC<ScrapeProgressProps> = ({
                 {skippedFiles > processedFiles && (
                   <div>• <strong>High Skip Rate:</strong> Many files are being skipped - check file permissions and formats</div>
                 )}
+                {hasMoreFiles && (
+                  <div>• <strong>Chunked Processing:</strong> Use "Continue Processing" to handle remaining files in smaller batches</div>
+                )}
               </div>
             </div>
           </div>
@@ -288,13 +346,20 @@ const ScrapeProgress: React.FC<ScrapeProgressProps> = ({
                 <CheckCircle className="h-4 w-4 text-green-600" />
               )}
               <span className={`text-sm font-medium ${hasErrors ? 'text-yellow-900' : 'text-green-900'}`}>
-                {hasErrors ? (
+                {hasMoreFiles ? (
+                  `Batch completed: Processed ${processedFiles} out of ${filesProcessedThisRun} files in this run`
+                ) : hasErrors ? (
                   `Scraping completed with issues: Processed ${processedFiles} out of ${totalFiles} files (${errors.length} errors encountered)`
                 ) : (
                   `Scraping completed successfully! Processed ${processedFiles} out of ${totalFiles} files.`
                 )}
               </span>
             </div>
+            {hasMoreFiles && (
+              <div className="text-xs text-blue-800 mt-1">
+                {totalFiles - filesProcessedThisRun} files remaining. Use "Continue Processing" to handle them in the next batch.
+              </div>
+            )}
             {hasErrors && (
               <div className="text-xs text-yellow-800 mt-1">
                 Check the error analysis above and console logs for detailed troubleshooting information.
