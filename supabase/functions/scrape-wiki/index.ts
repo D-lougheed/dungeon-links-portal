@@ -26,8 +26,8 @@ serve(async (req) => {
 
     console.log(`Starting to scrape wiki from: ${baseUrl}`)
 
-    // Get OpenAI API key
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+    // Get OpenAI API key using your existing key name
+    const openaiApiKey = Deno.env.get('CGPTkey')
     if (!openaiApiKey) {
       throw new Error('OpenAI API key not configured')
     }
