@@ -1,12 +1,12 @@
 
 import React from 'react';
-import { AuthProvider, useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import Dashboard from '../components/Dashboard';
 import { Button } from '@/components/ui/button';
 import { Shield, Swords } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const AppContent = () => {
+const Index = () => {
   const { user, isLoading } = useAuth();
   
   if (isLoading) {
@@ -84,14 +84,6 @@ const AppContent = () => {
         </div>
       </main>
     </div>
-  );
-};
-
-const Index = () => {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
   );
 };
 
