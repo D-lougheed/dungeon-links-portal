@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -33,6 +32,7 @@ serve(async (req) => {
     console.log(`🚀 GOOGLE DRIVE SCRAPER STARTED: ${folderId}`)
     console.log(`📊 CONFIGURATION:`)
     console.log(`   - Folder ID: ${folderId}`)
+    console.log(`   - API Key: ${googleApiKey.substring(0, 10)}...`)
     console.log(`   - Target: All .md files in folder and subfolders`)
 
     // Get OpenAI API key (using the correct secret name)
@@ -49,7 +49,7 @@ serve(async (req) => {
       const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink)&pageSize=100`
       
       try {
-        console.log(`🌐 API URL: ${url}`)
+        console.log(`🌐 API URL: ${url.replace(googleApiKey, 'API_KEY_HIDDEN')}`)
         const response = await fetch(url)
         console.log(`📡 API Response Status: ${response.status} ${response.statusText}`)
         
@@ -68,6 +68,7 @@ serve(async (req) => {
           console.log(`   - The folder is empty`)
           console.log(`   - The API key doesn't have access to this folder`)
           console.log(`   - The folder ID is incorrect`)
+          console.log(`   - The folder is not publicly accessible`)
         }
         
         const allFiles = []
