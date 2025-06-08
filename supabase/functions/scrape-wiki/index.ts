@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -35,8 +34,8 @@ serve(async (req) => {
     console.log(`   - Folder ID: ${folderId}`)
     console.log(`   - Target: All .md files in folder and subfolders`)
 
-    // Get OpenAI API key
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+    // Get OpenAI API key (using the correct secret name)
+    const openaiApiKey = Deno.env.get('CGPTkey')
     if (!openaiApiKey) {
       throw new Error('OpenAI API key not configured')
     }
