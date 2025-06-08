@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -12,10 +13,16 @@ serve(async (req) => {
   }
 
   try {
-    const { folderId } = await req.json()
+    // Get configuration from environment variables
+    const googleApiKey = Deno.env.get('GDrive_APIKey')
+    const folderId = Deno.env.get('Google_FolderID')
+    
+    if (!googleApiKey) {
+      throw new Error('Google Drive API key not configured')
+    }
     
     if (!folderId) {
-      throw new Error('Google Drive folder ID is required')
+      throw new Error('Google Drive folder ID not configured')
     }
 
     // Initialize Supabase client
@@ -27,12 +34,6 @@ serve(async (req) => {
     console.log(`📊 CONFIGURATION:`)
     console.log(`   - Folder ID: ${folderId}`)
     console.log(`   - Target: All .md files in folder and subfolders`)
-
-    // Get Google Drive API key
-    const googleApiKey = Deno.env.get('GOOGLE_DRIVE_API_KEY')
-    if (!googleApiKey) {
-      throw new Error('Google Drive API key not configured')
-    }
 
     // Get OpenAI API key
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')

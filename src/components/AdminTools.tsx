@@ -21,7 +21,6 @@ interface ScrapingStatus {
 }
 
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
-  const [googleDriveFolderId, setGoogleDriveFolderId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [scraperStatus, setScraperStatus] = useState('');
   const [scrapingDetails, setScrapingDetails] = useState<ScrapingStatus>({});
@@ -72,11 +71,11 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
     setScrapingDetails({});
     
     try {
-      console.log('Starting scrape with Google Drive folder ID:', googleDriveFolderId);
+      console.log('Starting scrape with configured Google Drive folder');
       
-      // Call the edge function to scrape Google Drive
+      // Call the edge function to scrape Google Drive (no body needed now)
       const { data, error } = await supabase.functions.invoke('scrape-wiki', {
-        body: { folderId: googleDriveFolderId }
+        body: {}
       });
 
       console.log('Scrape response:', data, error);
@@ -105,7 +104,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       });
       toast({
         title: "Scraping Failed",
-        description: "There was an error scraping Google Drive. Please check the folder ID and API access.",
+        description: "There was an error scraping Google Drive. Please check the configuration and API access.",
         variant: "destructive",
       });
     } finally {
@@ -208,32 +207,25 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
               Google Drive Content Scraper
             </CardTitle>
             <CardDescription>
-              Scrape all .md files from a Google Drive folder to build the knowledge base for the AI assistant.
+              Automatically scan the configured Google Drive folder for .md files and update the knowledge base.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div>
-                <label htmlFor="drive-folder-id" className="block text-sm font-medium text-slate-700 mb-2">
-                  Google Drive Folder ID
-                </label>
-                <Input
-                  id="drive-folder-id"
-                  type="text"
-                  value={googleDriveFolderId}
-                  onChange={(e) => setGoogleDriveFolderId(e.target.value)}
-                  placeholder="1AbC2DeFgHiJkLmNoPqRsTuVwXyZ"
-                  className="w-full"
-                />
-                <p className="text-sm text-slate-600 mt-1">
-                  Get the folder ID from the Google Drive URL: drive.google.com/drive/folders/<strong>FOLDER_ID</strong>
-                </p>
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+                <h3 className="font-medium text-slate-900 mb-2">Configuration Status</h3>
+                <ul className="text-sm text-slate-700 space-y-1">
+                  <li>• Google Drive API Key: Configured</li>
+                  <li>• Target Folder: Configured (via secrets)</li>
+                  <li>• Scan Mode: Recursive (includes subfolders)</li>
+                  <li>• File Types: .md (Markdown files only)</li>
+                </ul>
               </div>
               
               <div className="flex space-x-3">
                 <Button 
                   onClick={handleScrapeGoogleDrive}
-                  disabled={isLoading || !googleDriveFolderId.trim()}
+                  disabled={isLoading}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   {isLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
@@ -244,7 +236,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   variant="outline"
                   disabled={wikiStats.totalPages === 0}
                 >
-                  <Upload className="h-4 w-4 mr-2" />
+                  <Download className="h-4 w-4 mr-2" />
                   Export Data
                 </Button>
                 <Button 
@@ -369,8 +361,9 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <li>• Similarity search algorithm: Cosine similarity</li>
                 <li>• Content processing: Automatic markdown cleaning and embedding</li>
                 <li>• Update frequency: Manual via scraper</li>
-                <li>• Source: Google Drive .md files</li>
+                <li>• Source: Google Drive .md files (configured folder)</li>
                 <li>• Recursive folder scanning: Enabled</li>
+                <li>• Content deduplication: Hash-based change detection</li>
               </ul>
             </div>
           </CardContent>
