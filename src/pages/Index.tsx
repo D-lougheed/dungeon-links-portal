@@ -1,26 +1,21 @@
-
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Dashboard from '../components/Dashboard';
 import { Link } from 'react-router-dom';
-
 const Index = () => {
-  const { user, isLoading } = useAuth();
-  
+  const {
+    user,
+    isLoading
+  } = useAuth();
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100">
+    return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100">
         <div className="text-amber-700">Loading...</div>
-      </div>
-    );
+      </div>;
   }
-  
   if (user) {
     return <Dashboard />;
   }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 relative overflow-hidden">
+  return <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 relative overflow-hidden">
       {/* Magical background effects */}
       <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%239C92AC%22%20fill-opacity%3D%220.1%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%222%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-50"></div>
       
@@ -38,7 +33,7 @@ const Index = () => {
           {/* Portal with Map Image */}
           <div className="relative">
             <Link to="/auth" className="block">
-              <div className="w-80 h-80 mx-auto relative group cursor-pointer">
+              <div className="w-80 h-80 mx-auto relative group cursor-pointer rounded-lg">
                 {/* Outer ring with rotation animation */}
                 <div className="absolute inset-0 border-4 border-purple-400 rounded-full animate-spin opacity-60 group-hover:opacity-80 transition-opacity duration-300"></div>
                 {/* Middle ring with reverse rotation */}
@@ -46,24 +41,18 @@ const Index = () => {
                 
                 {/* Circular Map Portal */}
                 <div className="absolute inset-4 rounded-full overflow-hidden shadow-2xl group-hover:shadow-purple-500/50 transition-all duration-300">
-                  <img 
-                    src="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png" 
-                    alt="D&D World Map Portal"
-                    className="w-full h-full object-cover transition-all duration-500 group-hover:blur-sm group-hover:scale-110"
-                  />
+                  <img src="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png" alt="D&D World Map Portal" className="w-full h-full object-cover transition-all duration-500 group-hover:blur-sm group-hover:scale-110" />
                   {/* Magical overlay */}
                   <div className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-blue-600/20 group-hover:from-purple-500/40 group-hover:to-blue-600/40 transition-all duration-300"></div>
                 </div>
                 
                 {/* Glow effect */}
-                <div className="absolute inset-0 rounded-full bg-purple-500 opacity-20 blur-xl group-hover:opacity-40 transition-opacity duration-300"></div>
+                <div className="absolute inset-0 rounded-full opacity-20 blur-xl group-hover:opacity-40 transition-opacity duration-300 bg-rose-50"></div>
               </div>
             </Link>
           </div>
         </div>
       </main>
-    </div>
-  );
+    </div>;
 };
-
 export default Index;
