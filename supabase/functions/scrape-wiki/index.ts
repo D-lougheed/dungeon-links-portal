@@ -24,7 +24,11 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log(`Starting to scrape wiki from: ${baseUrl}`)
+    console.log(`🚀 SCRAPER STARTED: ${baseUrl}`)
+    console.log(`📊 CONFIGURATION:`)
+    console.log(`   - Base URL: ${baseUrl}`)
+    console.log(`   - Target path: /Published/`)
+    console.log(`   - Max pages: 100`)
 
     // Get OpenAI API key
     const openaiApiKey = Deno.env.get('CGPTkey')
@@ -32,76 +36,82 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured')
     }
 
-    // Function to extract content from a webpage with improved HTML parsing for your wiki
+    // Function to extract content from a webpage with detailed logging
     const scrapePage = async (url: string) => {
       try {
-        console.log(`Fetching: ${url}`)
+        console.log(`\n🔍 PROCESSING: ${url}`)
         const response = await fetch(url)
         if (!response.ok) {
-          console.log(`Failed to fetch ${url}: ${response.status}`)
+          console.log(`❌ FETCH FAILED: ${url} - Status: ${response.status}`)
           return null
         }
         
         const html = await response.text()
-        console.log(`HTML length for ${url}: ${html.length}`)
+        console.log(`📄 HTML LENGTH: ${html.length} characters`)
         
-        // Log a sample of the HTML to understand the structure
-        console.log(`HTML sample for ${url}:`, html.substring(0, 500))
-        
-        // Extract title with multiple fallbacks
+        // Extract title
         let title = 'Untitled'
         const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i)
         if (titleMatch) {
           title = titleMatch[1].replace(/\s+/g, ' ').trim()
+          console.log(`📝 TITLE EXTRACTED: "${title}"`)
+        } else {
+          console.log(`⚠️  NO TITLE FOUND`)
         }
         
-        // Try to find the main content with much more aggressive extraction
+        // Extract content with detailed logging
         let extractedContent = ''
         
-        // First, try to find any text content inside common content tags
-        const contentPatterns = [
-          // Look for any div with substantial text content
-          /<div[^>]*>([^<]*(?:<(?!\/div)[^>]*>[^<]*)*[^<]*)<\/div>/gi,
-          // Look for paragraphs
-          /<p[^>]*>(.*?)<\/p>/gi,
-          // Look for headings
-          /<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi,
-          // Look for spans with text
-          /<span[^>]*>(.*?)<\/span>/gi,
-          // Look for any text between tags
-          />([^<]+)</g
+        // Log HTML structure sample
+        const htmlSample = html.substring(0, 500)
+        console.log(`🔬 HTML SAMPLE:`, htmlSample.replace(/\n/g, ' ').substring(0, 200) + '...')
+        
+        // Try multiple content extraction strategies
+        const strategies = [
+          { name: 'Main content areas', pattern: /<main[^>]*>([\s\S]*?)<\/main>/gi },
+          { name: 'Article tags', pattern: /<article[^>]*>([\s\S]*?)<\/article>/gi },
+          { name: 'Content divs', pattern: /<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi },
+          { name: 'Paragraphs', pattern: /<p[^>]*>(.*?)<\/p>/gi },
+          { name: 'Headings', pattern: /<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi }
         ]
         
-        let allTextContent = []
+        let contentParts = []
         
-        // Extract all text content regardless of container
-        for (const pattern of contentPatterns) {
-          const matches = html.matchAll(pattern)
+        for (const strategy of strategies) {
+          const matches = html.matchAll(strategy.pattern)
+          const strategyContent = []
+          
           for (const match of matches) {
-            if (match[1] && match[1].trim().length > 10) { // Only meaningful text
-              allTextContent.push(match[1].trim())
+            if (match[1] && match[1].trim().length > 10) {
+              strategyContent.push(match[1].trim())
             }
+          }
+          
+          console.log(`📋 ${strategy.name}: Found ${strategyContent.length} matches`)
+          if (strategyContent.length > 0) {
+            contentParts.push(...strategyContent)
           }
         }
         
-        // If we didn't find content with patterns, try a more aggressive approach
-        if (allTextContent.length === 0) {
-          // Remove all script and style tags first
+        if (contentParts.length === 0) {
+          console.log(`🔄 FALLBACK: Using aggressive text extraction`)
+          // Fallback: remove scripts/styles and extract all text
           let cleanHtml = html
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
             .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
             .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
           
-          // Find all text nodes by removing all HTML tags
           const textNodes = cleanHtml.replace(/<[^>]*>/g, ' ')
             .replace(/\s+/g, ' ')
             .trim()
           
           if (textNodes.length > 50) {
             extractedContent = textNodes
+            console.log(`✅ FALLBACK SUCCESS: Extracted ${textNodes.length} characters`)
           }
         } else {
-          extractedContent = allTextContent.join(' ')
+          extractedContent = contentParts.join(' ')
+          console.log(`✅ STRATEGY SUCCESS: Extracted ${extractedContent.length} characters from ${contentParts.length} parts`)
         }
         
         // Clean the content
@@ -110,71 +120,89 @@ serve(async (req) => {
           .replace(/\n\s*\n/g, '\n')
           .trim()
 
-        console.log(`Clean content length for ${url}: ${cleanContent.length}`)
-        console.log(`Content preview: "${cleanContent.substring(0, 300)}..."`)
+        console.log(`🧹 CLEANED CONTENT: ${cleanContent.length} characters`)
+        console.log(`📖 PREVIEW: "${cleanContent.substring(0, 150)}..."`)
 
-        // Be more lenient with content length - accept any meaningful text
         if (cleanContent.length < 20) {
-          console.log(`Skipping ${url} - content too short: ${cleanContent.length} chars`)
+          console.log(`❌ CONTENT TOO SHORT: Only ${cleanContent.length} characters - SKIPPING`)
           return null
         }
 
-        return {
+        const result = {
           url,
           title,
           content: cleanContent.substring(0, 8000), // Limit content length
           contentHash: await generateHash(cleanContent),
           rawHtml: html
         }
+        
+        console.log(`✅ PAGE PROCESSED SUCCESSFULLY: ${url}`)
+        console.log(`   - Title: ${title}`)
+        console.log(`   - Content length: ${result.content.length}`)
+        console.log(`   - Hash: ${result.contentHash.substring(0, 16)}...`)
+        
+        return result
       } catch (error) {
-        console.error(`Error scraping ${url}:`, error)
+        console.error(`💥 ERROR PROCESSING: ${url}`, error)
         return null
       }
     }
 
-    // Enhanced function to extract links from HTML
+    // Enhanced function to extract links with detailed logging
     const extractLinks = (html: string, baseUrl: string) => {
+      console.log(`\n🔗 EXTRACTING LINKS FROM PAGE`)
       const links = new Set<string>()
       
-      // More comprehensive link extraction
       const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi
       let match
+      let totalLinksFound = 0
+      let publishedLinksFound = 0
+      let skippedLinks = 0
 
       while ((match = linkRegex.exec(html)) !== null) {
+        totalLinksFound++
         let href = match[1]
         
         // Skip anchors, email, and other non-content links
         if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) {
+          skippedLinks++
           continue
         }
         
         // Skip common non-content pages
         if (href.includes('edit') || href.includes('action=') || href.includes('Special:') || 
             href.includes('login') || href.includes('register') || href.includes('admin')) {
+          skippedLinks++
           continue
         }
         
-        // Handle relative URLs
         try {
           const fullUrl = new URL(href, baseUrl).href
-          // Remove fragments and query parameters for consistency
           const cleanUrl = fullUrl.split('#')[0].split('?')[0]
           
-          // For your wiki, specifically look for /Published/ paths and other content paths
           const baseUrlObj = new URL(baseUrl)
           const linkUrlObj = new URL(cleanUrl)
           
-          // Only include links from the same domain
-          if (linkUrlObj.hostname === baseUrlObj.hostname) {
+          // Only include links from the same domain that contain /Published/
+          if (linkUrlObj.hostname === baseUrlObj.hostname && cleanUrl.includes('/Published/')) {
             links.add(cleanUrl)
+            publishedLinksFound++
+            console.log(`  ✅ FOUND PUBLISHED LINK: ${cleanUrl}`)
+          } else {
+            skippedLinks++
           }
         } catch (e) {
-          // Invalid URL, skip
+          skippedLinks++
           continue
         }
       }
       
-      console.log(`Extracted ${links.size} links from page`)
+      console.log(`🔗 LINK EXTRACTION SUMMARY:`)
+      console.log(`   - Total links found: ${totalLinksFound}`)
+      console.log(`   - Published links: ${publishedLinksFound}`)
+      console.log(`   - Skipped links: ${skippedLinks}`)
+      console.log(`   - Unique published links: ${links.size}`)
+      
       return Array.from(links)
     }
 
@@ -190,6 +218,7 @@ serve(async (req) => {
     // Function to generate embeddings using OpenAI
     const generateEmbedding = async (text: string) => {
       try {
+        console.log(`🤖 GENERATING EMBEDDING: ${text.length} characters`)
         const response = await fetch('https://api.openai.com/v1/embeddings', {
           method: 'POST',
           headers: {
@@ -208,67 +237,82 @@ serve(async (req) => {
         }
 
         const data = await response.json()
+        console.log(`✅ EMBEDDING GENERATED SUCCESSFULLY`)
         return data.data[0].embedding
       } catch (error) {
-        console.error('Error generating embedding:', error)
+        console.error('💥 EMBEDDING ERROR:', error)
         return null
       }
     }
 
-    // Start with more targeted discovery for your wiki structure
+    console.log(`\n🌐 INITIALIZING URL DISCOVERY`)
     const discoveredUrls = new Set<string>()
     const processedUrls = new Set<string>()
     const maxPages = 100
     let pagesScraped = 0
+    let pagesSkipped = 0
 
-    // Add the base URL and explore from there
+    // Add comprehensive seed URLs for discovery
     const baseUrlObj = new URL(baseUrl)
-    
-    // Start with the provided URL and common paths
     const seedUrls = [
       baseUrl,
       `${baseUrlObj.origin}/Published/`,
       `${baseUrlObj.origin}/Published/Common+Lore/`,
       `${baseUrlObj.origin}/Published/Common+Lore/The+Whispering+Gyre/`,
       `${baseUrlObj.origin}/Published/Common+Lore/The+Whispering+Gyre`,
-      `${baseUrlObj.origin}/`,
       `${baseUrlObj.origin}/Published`,
+      `${baseUrlObj.origin}/`,
     ]
 
     seedUrls.forEach(url => {
       try {
         const normalizedUrl = new URL(url).href
         discoveredUrls.add(normalizedUrl)
+        console.log(`🌱 SEED URL ADDED: ${normalizedUrl}`)
       } catch (e) {
-        console.log(`Invalid seed URL: ${url}`)
+        console.log(`❌ INVALID SEED URL: ${url}`)
       }
     })
 
-    console.log(`Starting with ${discoveredUrls.size} seed URLs:`, Array.from(discoveredUrls))
+    console.log(`\n📊 DISCOVERY PHASE COMPLETE`)
+    console.log(`   - Starting with ${discoveredUrls.size} seed URLs`)
+    console.log(`   - Max pages to process: ${maxPages}`)
 
-    // Process URLs in batches
+    // Process URLs in batches with detailed logging
+    let batchNumber = 0
     while (discoveredUrls.size > 0 && pagesScraped < maxPages) {
-      const urlsToProcess = Array.from(discoveredUrls).slice(0, 3) // Smaller batches
+      batchNumber++
+      const urlsToProcess = Array.from(discoveredUrls).slice(0, 3)
       urlsToProcess.forEach(url => {
         discoveredUrls.delete(url)
         processedUrls.add(url)
       })
 
-      console.log(`Processing batch of ${urlsToProcess.length} URLs. Remaining: ${discoveredUrls.size}`)
+      console.log(`\n🎯 BATCH ${batchNumber}: Processing ${urlsToProcess.length} URLs`)
+      console.log(`   - Remaining in queue: ${discoveredUrls.size}`)
+      console.log(`   - URLs to process:`)
+      urlsToProcess.forEach((url, index) => {
+        console.log(`     ${index + 1}. ${url}`)
+      })
 
       for (const url of urlsToProcess) {
-        if (pagesScraped >= maxPages) break
+        if (pagesScraped >= maxPages) {
+          console.log(`🛑 MAX PAGES REACHED: ${maxPages}`)
+          break
+        }
         
-        console.log(`Processing: ${url}`)
+        console.log(`\n📄 PROCESSING URL ${pagesScraped + 1}/${maxPages}: ${url}`)
         
         const pageData = await scrapePage(url)
         if (!pageData) {
-          console.log(`Skipped ${url} - no valid content extracted`)
+          console.log(`⏭️  SKIPPED: ${url} - No valid content extracted`)
+          pagesSkipped++
           continue
         }
 
-        // Extract links from this page for future discovery
+        // Extract links for future discovery
         if (discoveredUrls.size < maxPages * 3) {
+          console.log(`🔍 DISCOVERING NEW LINKS FROM: ${url}`)
           const newLinks = extractLinks(pageData.rawHtml, baseUrl)
           let newLinksAdded = 0
           newLinks.forEach(link => {
@@ -277,30 +321,34 @@ serve(async (req) => {
               newLinksAdded++
             }
           })
-          console.log(`Added ${newLinksAdded} new links to discovery queue`)
+          console.log(`➕ ADDED ${newLinksAdded} NEW URLS TO QUEUE`)
         }
 
-        // Check if this content already exists (by hash)
+        // Check if this content already exists
+        console.log(`🔍 CHECKING FOR EXISTING CONTENT: ${pageData.contentHash.substring(0, 16)}...`)
         const { data: existing } = await supabase
           .from('wiki_content')
-          .select('id')
+          .select('id, url')
           .eq('content_hash', pageData.contentHash)
           .single()
 
         if (existing) {
-          console.log(`Skipping ${url} - content already exists (hash match)`)
+          console.log(`⏭️  CONTENT ALREADY EXISTS: ${url} (matches ${existing.url})`)
+          pagesSkipped++
           continue
         }
 
-        // Generate embedding for the content
-        console.log(`Generating embedding for ${url}`)
+        // Generate embedding
+        console.log(`🤖 GENERATING EMBEDDING FOR: ${url}`)
         const embedding = await generateEmbedding(pageData.content)
         if (!embedding) {
-          console.log(`Skipping ${url} - failed to generate embedding`)
+          console.log(`❌ EMBEDDING FAILED: ${url} - Skipping`)
+          pagesSkipped++
           continue
         }
 
-        // Insert the content
+        // Save to database
+        console.log(`💾 SAVING TO DATABASE: ${url}`)
         const { error } = await supabase
           .from('wiki_content')
           .upsert({
@@ -315,31 +363,44 @@ serve(async (req) => {
           })
 
         if (error) {
-          console.error(`Error saving ${url}:`, error)
+          console.error(`💥 DATABASE ERROR: ${url}`, error)
+          pagesSkipped++
           continue
         }
 
         pagesScraped++
-        console.log(`✅ Successfully processed ${pagesScraped}: ${url}`)
-        console.log(`   Title: ${pageData.title}`)
-        console.log(`   Content length: ${pageData.content.length}`)
+        console.log(`\n🎉 SUCCESS! Page ${pagesScraped} saved: ${url}`)
+        console.log(`   📝 Title: ${pageData.title}`)
+        console.log(`   📄 Content: ${pageData.content.length} characters`)
+        console.log(`   🆔 Hash: ${pageData.contentHash.substring(0, 16)}...`)
 
-        // Add a small delay to be respectful to the server
-        await new Promise(resolve => setTimeout(resolve, 1500))
+        // Add delay between requests
+        await new Promise(resolve => setTimeout(resolve, 1000))
       }
       
-      console.log(`Batch complete. Pages scraped so far: ${pagesScraped}`)
+      console.log(`\n📊 BATCH ${batchNumber} COMPLETE`)
+      console.log(`   - Pages scraped so far: ${pagesScraped}`)
+      console.log(`   - Pages skipped: ${pagesSkipped}`)
+      console.log(`   - URLs remaining: ${discoveredUrls.size}`)
     }
 
     const totalDiscovered = processedUrls.size
-    console.log(`Scraping complete. Processed ${totalDiscovered} URLs, successfully scraped ${pagesScraped} pages`)
+    console.log(`\n🏁 SCRAPING COMPLETE!`)
+    console.log(`   📊 FINAL STATISTICS:`)
+    console.log(`   - Total URLs discovered: ${totalDiscovered}`)
+    console.log(`   - Total URLs processed: ${processedUrls.size}`)
+    console.log(`   - Pages successfully scraped: ${pagesScraped}`)
+    console.log(`   - Pages skipped: ${pagesSkipped}`)
+    console.log(`   - URLs that had /Published/ path: ${Array.from(processedUrls).filter(url => url.includes('/Published/')).length}`)
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         pagesScraped,
+        pagesSkipped,
         totalDiscovered,
-        message: `Successfully scraped and processed ${pagesScraped} pages from ${totalDiscovered} discovered URLs` 
+        publishedUrls: Array.from(processedUrls).filter(url => url.includes('/Published/')),
+        message: `Successfully scraped ${pagesScraped} pages, skipped ${pagesSkipped} pages, from ${totalDiscovered} discovered URLs` 
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -347,7 +408,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Wiki scraping error:', error)
+    console.error('💥 SCRAPER ERROR:', error)
     return new Response(
       JSON.stringify({ 
         error: error.message,

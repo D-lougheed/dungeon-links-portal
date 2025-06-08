@@ -3,23 +3,36 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload } from 'lucide-react';
+import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface AdminToolsProps {
   onBack: () => void;
+}
+
+interface ScrapingStatus {
+  currentUrl?: string;
+  stage?: string;
+  pagesProcessed?: number;
+  pagesSkipped?: number;
+  errors?: string[];
+  discoveredUrls?: string[];
 }
 
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
   const [wikiUrl, setWikiUrl] = useState('https://wiki.the-guild.io');
   const [isLoading, setIsLoading] = useState(false);
   const [scraperStatus, setScraperStatus] = useState('');
+  const [scrapingDetails, setScrapingDetails] = useState<ScrapingStatus>({});
   const [wikiStats, setWikiStats] = useState({ totalPages: 0, lastUpdate: null });
+  const [wikiPages, setWikiPages] = useState<any[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
     loadWikiStats();
+    loadWikiPages();
   }, []);
 
   const loadWikiStats = async () => {
@@ -39,28 +52,58 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
     }
   };
 
+  const loadWikiPages = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('wiki_content')
+        .select('id, url, title, content, updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      setWikiPages(data || []);
+    } catch (error) {
+      console.error('Error loading wiki pages:', error);
+    }
+  };
+
   const handleScrapeWiki = async () => {
     setIsLoading(true);
     setScraperStatus('Starting wiki scraping...');
+    setScrapingDetails({});
     
     try {
+      console.log('Starting scrape with URL:', wikiUrl);
+      
       // Call the edge function to scrape the wiki
       const { data, error } = await supabase.functions.invoke('scrape-wiki', {
         body: { baseUrl: wikiUrl }
       });
 
+      console.log('Scrape response:', data, error);
+
       if (error) throw error;
 
-      setScraperStatus(`Successfully scraped ${data.pagesScraped} pages`);
+      setScraperStatus(`Successfully scraped ${data.pagesScraped} pages out of ${data.totalDiscovered} discovered URLs`);
+      setScrapingDetails({
+        pagesProcessed: data.pagesScraped,
+        stage: 'Complete'
+      });
+      
       await loadWikiStats();
+      await loadWikiPages();
       
       toast({
         title: "Wiki Scraping Complete",
-        description: `Successfully processed ${data.pagesScraped} pages from your wiki.`,
+        description: `Successfully processed ${data.pagesScraped} pages from ${data.totalDiscovered} discovered URLs.`,
       });
     } catch (error) {
       console.error('Scraping error:', error);
-      setScraperStatus('Error occurred during scraping');
+      setScraperStatus('Error occurred during scraping: ' + error.message);
+      setScrapingDetails({
+        stage: 'Error',
+        errors: [error.message]
+      });
       toast({
         title: "Scraping Failed",
         description: "There was an error scraping the wiki. Please check the URL and try again.",
@@ -77,14 +120,18 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
     }
 
     try {
+      console.log('Clearing all wiki content...');
       const { error } = await supabase
         .from('wiki_content')
         .delete()
-        .neq('id', ''); // Delete all rows
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // This will delete all rows
 
       if (error) throw error;
 
       await loadWikiStats();
+      await loadWikiPages();
+      setScraperStatus('Database cleared successfully');
+      
       toast({
         title: "Database Cleared",
         description: "All wiki content has been removed from the database.",
@@ -93,7 +140,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       console.error('Error clearing database:', error);
       toast({
         title: "Clear Failed",
-        description: "There was an error clearing the database.",
+        description: "There was an error clearing the database: " + error.message,
         variant: "destructive",
       });
     }
@@ -187,7 +234,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   disabled={isLoading}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
-                  <Download className="h-4 w-4 mr-2" />
+                  {isLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                   {isLoading ? 'Scraping...' : 'Start Scraping'}
                 </Button>
                 <Button 
@@ -198,11 +245,32 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <Upload className="h-4 w-4 mr-2" />
                   Export Data
                 </Button>
+                <Button 
+                  onClick={handleClearDatabase}
+                  variant="destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Clear Database
+                </Button>
               </div>
 
               {scraperStatus && (
                 <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
-                  <p className="text-slate-700">{scraperStatus}</p>
+                  <p className="text-slate-700 font-medium">Status: {scraperStatus}</p>
+                  {scrapingDetails.stage && (
+                    <p className="text-slate-600 text-sm">Stage: {scrapingDetails.stage}</p>
+                  )}
+                  {scrapingDetails.pagesProcessed !== undefined && (
+                    <p className="text-slate-600 text-sm">Pages Processed: {scrapingDetails.pagesProcessed}</p>
+                  )}
+                  {scrapingDetails.errors && scrapingDetails.errors.length > 0 && (
+                    <div className="text-red-600 text-sm mt-2">
+                      <p className="font-medium">Errors:</p>
+                      {scrapingDetails.errors.map((error, index) => (
+                        <p key={index}>• {error}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -221,7 +289,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg">
                 <h3 className="text-lg font-semibold text-slate-800 mb-2">Total Pages</h3>
                 <p className="text-2xl font-bold text-blue-600">{wikiStats.totalPages}</p>
@@ -236,17 +304,43 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 </p>
               </div>
             </div>
-            
-            <div className="mt-4">
-              <Button 
-                onClick={handleClearDatabase}
-                variant="destructive"
-                disabled={wikiStats.totalPages === 0}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Clear All Data
-              </Button>
-            </div>
+
+            {/* Recent Pages Table */}
+            {wikiPages.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 mb-3">Recent Pages (Last 10)</h3>
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Title</TableHead>
+                        <TableHead>URL</TableHead>
+                        <TableHead>Content Preview</TableHead>
+                        <TableHead>Updated</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {wikiPages.map((page) => (
+                        <TableRow key={page.id}>
+                          <TableCell className="font-medium">{page.title}</TableCell>
+                          <TableCell className="text-sm text-blue-600 max-w-xs truncate">
+                            <a href={page.url} target="_blank" rel="noopener noreferrer">
+                              {page.url}
+                            </a>
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-600 max-w-md truncate">
+                            {page.content?.substring(0, 100)}...
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-500">
+                            {new Date(page.updated_at).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -269,6 +363,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <li>• Similarity search algorithm: Cosine similarity</li>
                 <li>• Content processing: Automatic chunking and embedding</li>
                 <li>• Update frequency: Manual via scraper</li>
+                <li>• Target URLs: Any page under /Published/ path</li>
               </ul>
             </div>
           </CardContent>
