@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -13,10 +12,10 @@ serve(async (req) => {
   }
 
   try {
-    const { baseUrl } = await req.json()
+    const { folderId } = await req.json()
     
-    if (!baseUrl) {
-      throw new Error('Base URL is required')
+    if (!folderId) {
+      throw new Error('Google Drive folder ID is required')
     }
 
     // Initialize Supabase client
@@ -24,203 +23,86 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log(`🚀 AUTO-DISCOVERY SCRAPER STARTED: ${baseUrl}`)
+    console.log(`🚀 GOOGLE DRIVE SCRAPER STARTED: ${folderId}`)
     console.log(`📊 CONFIGURATION:`)
-    console.log(`   - Base URL: ${baseUrl}`)
-    console.log(`   - Auto-discovery enabled`)
-    console.log(`   - Max pages: 500`)
-    console.log(`   - Target: All discoverable wiki pages`)
+    console.log(`   - Folder ID: ${folderId}`)
+    console.log(`   - Target: All .md files in folder and subfolders`)
+
+    // Get Google Drive API key
+    const googleApiKey = Deno.env.get('GOOGLE_DRIVE_API_KEY')
+    if (!googleApiKey) {
+      throw new Error('Google Drive API key not configured')
+    }
 
     // Get OpenAI API key
-    const openaiApiKey = Deno.env.get('CGPTkey')
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openaiApiKey) {
       throw new Error('OpenAI API key not configured')
     }
 
-    // Function to extract content from a webpage
-    const scrapePage = async (url: string) => {
+    // Function to recursively get all files from a Google Drive folder
+    const getAllMarkdownFiles = async (folderId: string, path: string = '') => {
+      console.log(`🔍 SCANNING FOLDER: ${folderId} (${path || 'root'})`)
+      
+      const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink)`
+      
       try {
-        console.log(`\n🔍 SCRAPING: ${url}`)
         const response = await fetch(url)
         if (!response.ok) {
-          console.log(`❌ FETCH FAILED: ${url} - Status: ${response.status}`)
-          return null
+          throw new Error(`Google Drive API error: ${response.status} ${response.statusText}`)
         }
         
-        const html = await response.text()
-        console.log(`📄 HTML SIZE: ${html.length} bytes`)
+        const data = await response.json()
+        const files = data.files || []
+        console.log(`📁 Found ${files.length} items in folder`)
         
-        // Extract title
-        let title = 'Untitled'
-        const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i)
-        if (titleMatch) {
-          title = titleMatch[1].replace(/\s+/g, ' ').trim()
-          console.log(`📝 TITLE: "${title}"`)
-        }
+        const allFiles = []
         
-        // Enhanced content extraction - try multiple strategies
-        let content = ''
-        
-        // Strategy 1: Remove scripts, styles, navigation
-        let cleanHtml = html
-          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-          .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-          .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-          .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-        
-        // Strategy 2: Extract meaningful text elements
-        const textElements = []
-        const patterns = [
-          /<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi,
-          /<p[^>]*>(.*?)<\/p>/gi,
-          /<div[^>]*class="[^"]*(?:content|main|wiki|article|page)[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-          /<td[^>]*>(.*?)<\/td>/gi,
-          /<li[^>]*>(.*?)<\/li>/gi
-        ]
-        
-        for (const pattern of patterns) {
-          let match
-          while ((match = pattern.exec(cleanHtml)) !== null) {
-            const text = match[1]
-              .replace(/<[^>]*>/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim()
-            if (text.length > 5 && !text.match(/^(edit|delete|login|home|back|next)$/i)) {
-              textElements.push(text)
-            }
+        for (const file of files) {
+          const currentPath = path ? `${path}/${file.name}` : file.name
+          
+          if (file.mimeType === 'application/vnd.google-apps.folder') {
+            // Recursively get files from subfolders
+            console.log(`📂 Entering subfolder: ${file.name}`)
+            const subfolderFiles = await getAllMarkdownFiles(file.id, currentPath)
+            allFiles.push(...subfolderFiles)
+          } else if (file.name.endsWith('.md')) {
+            console.log(`📄 Found markdown file: ${currentPath}`)
+            allFiles.push({
+              id: file.id,
+              name: file.name,
+              path: currentPath,
+              webViewLink: file.webViewLink
+            })
           }
         }
         
-        // Strategy 3: Fallback - extract all text
-        if (textElements.length === 0) {
-          content = cleanHtml
-            .replace(/<[^>]*>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-        } else {
-          content = textElements.join(' ')
-        }
-
-        console.log(`📖 CONTENT: ${content.length} characters`)
-
-        if (content.length < 20) {
-          console.log(`❌ CONTENT TOO SHORT - SKIPPING`)
-          return null
-        }
-
-        return {
-          url,
-          title,
-          content: content.substring(0, 8000),
-          contentHash: await generateHash(content),
-          rawHtml: html
-        }
+        return allFiles
       } catch (error) {
-        console.error(`💥 SCRAPING ERROR: ${url}`, error)
-        return null
+        console.error(`💥 Error scanning folder ${folderId}:`, error)
+        return []
       }
     }
 
-    // Aggressive link discovery function
-    const discoverAllLinks = async (startUrl: string) => {
-      console.log(`🔍 DISCOVERING ALL LINKS FROM: ${startUrl}`)
-      const discoveredUrls = new Set<string>()
-      const processedUrls = new Set<string>()
-      const urlQueue = [startUrl]
-      const baseUrlObj = new URL(baseUrl)
+    // Function to download file content from Google Drive
+    const downloadFileContent = async (fileId: string, fileName: string) => {
+      console.log(`⬇️  DOWNLOADING: ${fileName}`)
       
-      let discoveryRounds = 0
-      const maxDiscoveryRounds = 10
+      const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${googleApiKey}`
       
-      while (urlQueue.length > 0 && discoveryRounds < maxDiscoveryRounds) {
-        discoveryRounds++
-        const currentUrl = urlQueue.shift()!
-        
-        if (processedUrls.has(currentUrl)) continue
-        processedUrls.add(currentUrl)
-        
-        console.log(`\n🌐 DISCOVERY ROUND ${discoveryRounds}: ${currentUrl}`)
-        
-        try {
-          const response = await fetch(currentUrl)
-          if (!response.ok) continue
-          
-          const html = await response.text()
-          
-          // Extract all possible link patterns
-          const linkPatterns = [
-            /href=["']([^"']+)["']/gi,
-            /url\(["']([^"']+)["']\)/gi,
-            /"(\/[^"]*(?:Published|wiki|page)[^"]*)"/gi
-          ]
-          
-          let newLinksFound = 0
-          
-          for (const pattern of linkPatterns) {
-            let match
-            while ((match = pattern.exec(html)) !== null) {
-              let href = match[1]
-              
-              // Skip non-content links
-              if (href.startsWith('#') || href.startsWith('mailto:') || 
-                  href.startsWith('tel:') || href.startsWith('javascript:') ||
-                  href.includes('.css') || href.includes('.js') || 
-                  href.includes('.png') || href.includes('.jpg') ||
-                  href.includes('action=') || href.includes('edit') ||
-                  href.includes('Special:') || href.includes('login')) {
-                continue
-              }
-              
-              try {
-                // Handle relative and absolute URLs
-                const fullUrl = href.startsWith('http') ? href : new URL(href, baseUrl).href
-                const cleanUrl = fullUrl.split('#')[0].split('?')[0]
-                const urlObj = new URL(cleanUrl)
-                
-                // Only include URLs from the same domain
-                if (urlObj.hostname === baseUrlObj.hostname) {
-                  const shouldInclude = 
-                    urlObj.pathname.includes('/Published/') ||
-                    urlObj.pathname.includes('/wiki/') ||
-                    urlObj.pathname.includes('/page/') ||
-                    (urlObj.pathname.length > 3 && !urlObj.pathname.includes('.'))
-                  
-                  if (shouldInclude && !discoveredUrls.has(cleanUrl) && !processedUrls.has(cleanUrl)) {
-                    discoveredUrls.add(cleanUrl)
-                    urlQueue.push(cleanUrl)
-                    newLinksFound++
-                    
-                    if (urlObj.pathname.includes('/Published/')) {
-                      console.log(`  ✅ PUBLISHED: ${cleanUrl}`)
-                    } else {
-                      console.log(`  📋 WIKI: ${cleanUrl}`)
-                    }
-                  }
-                }
-              } catch (e) {
-                continue
-              }
-            }
-          }
-          
-          console.log(`  📊 Found ${newLinksFound} new links`)
-          
-          // Rate limit discovery
-          await new Promise(resolve => setTimeout(resolve, 200))
-          
-        } catch (error) {
-          console.error(`💥 DISCOVERY ERROR: ${currentUrl}`, error)
+      try {
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(`Failed to download ${fileName}: ${response.status}`)
         }
+        
+        const content = await response.text()
+        console.log(`✅ Downloaded ${fileName}: ${content.length} characters`)
+        return content
+      } catch (error) {
+        console.error(`💥 Error downloading ${fileName}:`, error)
+        return null
       }
-      
-      console.log(`\n🎯 DISCOVERY COMPLETE:`)
-      console.log(`   - Discovery rounds: ${discoveryRounds}`)
-      console.log(`   - URLs processed for discovery: ${processedUrls.size}`)
-      console.log(`   - Total URLs discovered: ${discoveredUrls.size}`)
-      console.log(`   - Published URLs: ${Array.from(discoveredUrls).filter(url => url.includes('/Published/')).length}`)
-      
-      return Array.from(discoveredUrls)
     }
 
     // Function to generate content hash
@@ -260,68 +142,98 @@ serve(async (req) => {
       }
     }
 
-    // Start auto-discovery from multiple entry points
-    console.log(`\n🌐 STARTING AUTO-DISCOVERY`)
-    const entryPoints = [
-      baseUrl,
-      `${new URL(baseUrl).origin}/Published/`,
-      `${new URL(baseUrl).origin}/`,
-      `${new URL(baseUrl).origin}/wiki/`,
-      `${new URL(baseUrl).origin}/index.php`
-    ]
-
-    let allDiscoveredUrls = new Set<string>()
-    
-    for (const entryPoint of entryPoints) {
-      console.log(`\n🚀 DISCOVERING FROM ENTRY POINT: ${entryPoint}`)
-      try {
-        const discoveredUrls = await discoverAllLinks(entryPoint)
-        discoveredUrls.forEach(url => allDiscoveredUrls.add(url))
-        console.log(`  ➕ Added ${discoveredUrls.length} URLs from ${entryPoint}`)
-      } catch (error) {
-        console.error(`💥 ENTRY POINT ERROR: ${entryPoint}`, error)
+    // Function to extract title from markdown content
+    const extractTitle = (content: string, fileName: string) => {
+      // Try to find h1 header first
+      const h1Match = content.match(/^#\s+(.+)$/m)
+      if (h1Match) {
+        return h1Match[1].trim()
       }
+      
+      // Fallback to filename without extension
+      return fileName.replace(/\.md$/, '').replace(/[-_]/g, ' ')
     }
 
-    const urlsToScrape = Array.from(allDiscoveredUrls)
-    const maxPages = 500
-    const publishedUrls = urlsToScrape.filter(url => url.includes('/Published/'))
+    // Function to clean markdown content for better embedding
+    const cleanMarkdownContent = (content: string) => {
+      return content
+        // Remove code blocks
+        .replace(/```[\s\S]*?```/g, '')
+        // Remove inline code
+        .replace(/`[^`]+`/g, '')
+        // Remove markdown links but keep text
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        // Remove markdown formatting
+        .replace(/[#*_~`]/g, '')
+        // Remove excessive whitespace
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+
+    // Start discovery and processing
+    console.log(`\n🌐 STARTING GOOGLE DRIVE DISCOVERY`)
+    const markdownFiles = await getAllMarkdownFiles(folderId)
     
     console.log(`\n📊 DISCOVERY SUMMARY:`)
-    console.log(`   - Total URLs discovered: ${urlsToScrape.length}`)
-    console.log(`   - Published URLs: ${publishedUrls.length}`)
-    console.log(`   - Will process up to: ${Math.min(maxPages, urlsToScrape.length)} pages`)
+    console.log(`   - Total .md files found: ${markdownFiles.length}`)
 
-    // Process discovered URLs
+    if (markdownFiles.length === 0) {
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          pagesScraped: 0,
+          pagesSkipped: 0,
+          totalDiscovered: 0,
+          message: 'No markdown files found in the specified folder' 
+        }),
+        { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
+    // Process discovered files
     let pagesScraped = 0
     let pagesSkipped = 0
-    const processedUrls = new Set<string>()
+    const processedFiles = []
 
-    for (const url of urlsToScrape.slice(0, maxPages)) {
-      console.log(`\n📄 PROCESSING ${pagesScraped + 1}/${Math.min(maxPages, urlsToScrape.length)}: ${url}`)
+    for (const file of markdownFiles) {
+      console.log(`\n📄 PROCESSING ${pagesScraped + pagesSkipped + 1}/${markdownFiles.length}: ${file.path}`)
       
-      const pageData = await scrapePage(url)
-      if (!pageData) {
-        console.log(`⏭️  SKIPPED: No content`)
+      const content = await downloadFileContent(file.id, file.name)
+      if (!content) {
+        console.log(`⏭️  SKIPPED: Could not download content`)
         pagesSkipped++
         continue
       }
 
-      // Check if content exists
+      // Extract title and clean content
+      const title = extractTitle(content, file.name)
+      const cleanedContent = cleanMarkdownContent(content)
+      
+      if (cleanedContent.length < 20) {
+        console.log(`⏭️  SKIPPED: Content too short after cleaning`)
+        pagesSkipped++
+        continue
+      }
+
+      const contentHash = await generateHash(content)
+      
+      // Check if content exists and is unchanged
       const { data: existing } = await supabase
         .from('wiki_content')
         .select('id, content_hash')
-        .eq('url', pageData.url)
+        .eq('url', file.webViewLink || `gdrive://${file.id}`)
         .single()
 
-      if (existing && existing.content_hash === pageData.contentHash) {
+      if (existing && existing.content_hash === contentHash) {
         console.log(`⏭️  UNCHANGED: Content identical`)
         pagesSkipped++
         continue
       }
 
       // Generate embedding
-      const embedding = await generateEmbedding(pageData.content)
+      const embedding = await generateEmbedding(cleanedContent)
       if (!embedding) {
         console.log(`❌ EMBEDDING FAILED`)
         pagesSkipped++
@@ -332,10 +244,10 @@ serve(async (req) => {
       const { error } = await supabase
         .from('wiki_content')
         .upsert({
-          url: pageData.url,
-          title: pageData.title,
-          content: pageData.content,
-          content_hash: pageData.contentHash,
+          url: file.webViewLink || `gdrive://${file.id}`,
+          title: title,
+          content: cleanedContent.substring(0, 8000),
+          content_hash: contentHash,
           embedding: embedding,
           updated_at: new Date().toISOString()
         }, {
@@ -349,29 +261,27 @@ serve(async (req) => {
       }
 
       pagesScraped++
-      processedUrls.add(url)
-      console.log(`✅ SAVED: ${pageData.title} (${pageData.content.length} chars)`)
+      processedFiles.push(file.path)
+      console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars)`)
       
       // Rate limiting
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await new Promise(resolve => setTimeout(resolve, 200))
     }
 
-    console.log(`\n🏁 AUTO-DISCOVERY SCRAPING COMPLETE!`)
+    console.log(`\n🏁 GOOGLE DRIVE SCRAPING COMPLETE!`)
     console.log(`   📊 FINAL STATISTICS:`)
-    console.log(`   - URLs discovered: ${urlsToScrape.length}`)
-    console.log(`   - Published URLs found: ${publishedUrls.length}`)
-    console.log(`   - Pages successfully scraped: ${pagesScraped}`)
-    console.log(`   - Pages skipped: ${pagesSkipped}`)
+    console.log(`   - Files discovered: ${markdownFiles.length}`)
+    console.log(`   - Files successfully scraped: ${pagesScraped}`)
+    console.log(`   - Files skipped: ${pagesSkipped}`)
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         pagesScraped,
         pagesSkipped,
-        totalDiscovered: urlsToScrape.length,
-        publishedUrlsFound: publishedUrls.length,
-        allDiscoveredUrls: urlsToScrape.slice(0, 50), // Return first 50 for reference
-        message: `Auto-discovery complete: Found ${urlsToScrape.length} URLs, scraped ${pagesScraped} pages, ${publishedUrls.length} Published pages discovered` 
+        totalDiscovered: markdownFiles.length,
+        processedFiles: processedFiles.slice(0, 50), // Return first 50 for reference
+        message: `Google Drive scraping complete: Found ${markdownFiles.length} .md files, scraped ${pagesScraped} files` 
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -379,7 +289,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('💥 AUTO-DISCOVERY SCRAPER ERROR:', error)
+    console.error('💥 GOOGLE DRIVE SCRAPER ERROR:', error)
     return new Response(
       JSON.stringify({ 
         error: error.message,
