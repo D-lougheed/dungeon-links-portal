@@ -37,23 +37,40 @@ const Index = () => {
 
       <main className="relative z-10 min-h-screen flex flex-col items-center justify-center px-4">
         <div className="text-center max-w-4xl mx-auto">
-          {/* Portal Icon */}
+          {/* Portal with Map Image */}
           <div className="mb-8 relative">
-            <div className="w-32 h-32 mx-auto relative">
-              {/* Outer ring with rotation animation */}
-              <div className="absolute inset-0 border-4 border-purple-400 rounded-full animate-spin opacity-60"></div>
-              {/* Middle ring with reverse rotation */}
-              <div className="absolute inset-2 border-3 border-blue-400 rounded-full animate-reverse-spin opacity-80"></div>
-              {/* Inner portal with glow */}
-              <div className="absolute inset-4 bg-gradient-to-br from-purple-500 to-blue-600 rounded-full flex items-center justify-center shadow-2xl">
-                <div className="relative">
-                  <Shield className="h-12 w-12 text-white" />
-                  <Swords className="h-6 w-6 text-yellow-300 absolute -top-1 -right-1 animate-pulse" />
+            <Link to="/auth" className="block">
+              <div className="w-80 h-80 mx-auto relative group cursor-pointer">
+                {/* Outer ring with rotation animation */}
+                <div className="absolute inset-0 border-4 border-purple-400 rounded-full animate-spin opacity-60 group-hover:opacity-80 transition-opacity duration-300"></div>
+                {/* Middle ring with reverse rotation */}
+                <div className="absolute inset-2 border-3 border-blue-400 rounded-full animate-reverse-spin opacity-80 group-hover:opacity-100 transition-opacity duration-300"></div>
+                
+                {/* Circular Map Portal */}
+                <div className="absolute inset-4 rounded-full overflow-hidden shadow-2xl group-hover:shadow-purple-500/50 transition-all duration-300">
+                  <img 
+                    src="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png" 
+                    alt="D&D World Map Portal"
+                    className="w-full h-full object-cover transition-all duration-500 group-hover:blur-sm group-hover:scale-110"
+                  />
+                  {/* Magical overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-blue-600/20 group-hover:from-purple-500/40 group-hover:to-blue-600/40 transition-all duration-300"></div>
+                  {/* Portal entrance effect */}
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 animate-pulse"></div>
+                </div>
+                
+                {/* Glow effect */}
+                <div className="absolute inset-0 rounded-full bg-purple-500 opacity-20 blur-xl animate-pulse group-hover:opacity-40 transition-opacity duration-300"></div>
+                
+                {/* Portal entrance icon overlay */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
+                    <Shield className="h-8 w-8 text-white" />
+                    <Swords className="h-4 w-4 text-yellow-300 absolute top-2 right-2 animate-pulse" />
+                  </div>
                 </div>
               </div>
-              {/* Glow effect */}
-              <div className="absolute inset-0 rounded-full bg-purple-500 opacity-20 blur-xl animate-pulse"></div>
-            </div>
+            </Link>
           </div>
 
           {/* Title */}
