@@ -1,5 +1,4 @@
 
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -33,7 +32,7 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured')
     }
 
-    // Function to extract content from a webpage with better HTML parsing
+    // Function to extract content from a webpage with improved HTML parsing for your wiki
     const scrapePage = async (url: string) => {
       try {
         console.log(`Fetching: ${url}`)
@@ -46,6 +45,9 @@ serve(async (req) => {
         const html = await response.text()
         console.log(`HTML length for ${url}: ${html.length}`)
         
+        // Log a sample of the HTML to understand the structure
+        console.log(`HTML sample for ${url}:`, html.substring(0, 500))
+        
         // Extract title with multiple fallbacks
         let title = 'Untitled'
         const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i)
@@ -53,65 +55,66 @@ serve(async (req) => {
           title = titleMatch[1].replace(/\s+/g, ' ').trim()
         }
         
-        // Look for common content containers in wikis
-        const contentSelectors = [
-          /<div[^>]*class="[^"]*content[^"]*"[^>]*>(.*?)<\/div>/gis,
-          /<div[^>]*id="[^"]*content[^"]*"[^>]*>(.*?)<\/div>/gis,
-          /<main[^>]*>(.*?)<\/main>/gis,
-          /<article[^>]*>(.*?)<\/article>/gis,
-          /<div[^>]*class="[^"]*page[^"]*"[^>]*>(.*?)<\/div>/gis,
-          /<div[^>]*class="[^"]*wiki[^"]*"[^>]*>(.*?)<\/div>/gis,
-          /<body[^>]*>(.*?)<\/body>/gis
-        ]
-        
+        // Try to find the main content with much more aggressive extraction
         let extractedContent = ''
         
-        // Try each selector until we find meaningful content
-        for (const selector of contentSelectors) {
-          const matches = html.match(selector)
-          if (matches && matches[1]) {
-            extractedContent = matches[1]
-            console.log(`Found content using selector for ${url}, length: ${extractedContent.length}`)
-            break
+        // First, try to find any text content inside common content tags
+        const contentPatterns = [
+          // Look for any div with substantial text content
+          /<div[^>]*>([^<]*(?:<(?!\/div)[^>]*>[^<]*)*[^<]*)<\/div>/gi,
+          // Look for paragraphs
+          /<p[^>]*>(.*?)<\/p>/gi,
+          // Look for headings
+          /<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi,
+          // Look for spans with text
+          /<span[^>]*>(.*?)<\/span>/gi,
+          // Look for any text between tags
+          />([^<]+)</g
+        ]
+        
+        let allTextContent = []
+        
+        // Extract all text content regardless of container
+        for (const pattern of contentPatterns) {
+          const matches = html.matchAll(pattern)
+          for (const match of matches) {
+            if (match[1] && match[1].trim().length > 10) { // Only meaningful text
+              allTextContent.push(match[1].trim())
+            }
           }
         }
         
-        // If no specific content area found, use the whole body
-        if (!extractedContent) {
-          const bodyMatch = html.match(/<body[^>]*>(.*?)<\/body>/gis)
-          if (bodyMatch) {
-            extractedContent = bodyMatch[1] || ''
-          } else {
-            extractedContent = html
+        // If we didn't find content with patterns, try a more aggressive approach
+        if (allTextContent.length === 0) {
+          // Remove all script and style tags first
+          let cleanHtml = html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+            .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
+          
+          // Find all text nodes by removing all HTML tags
+          const textNodes = cleanHtml.replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+          
+          if (textNodes.length > 50) {
+            extractedContent = textNodes
           }
+        } else {
+          extractedContent = allTextContent.join(' ')
         }
         
-        // Clean the content more carefully
+        // Clean the content
         let cleanContent = extractedContent
-          // Remove script and style elements
-          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-          // Remove navigation elements
-          .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-          .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-          .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-          // Remove common non-content elements
-          .replace(/<div[^>]*class="[^"]*nav[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
-          .replace(/<div[^>]*class="[^"]*menu[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
-          .replace(/<div[^>]*class="[^"]*sidebar[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
-          // Remove HTML tags but preserve some structure
-          .replace(/<\/?(p|br|div|h[1-6])[^>]*>/gi, '\n')
-          .replace(/<[^>]*>/g, ' ')
-          // Clean up whitespace
           .replace(/\s+/g, ' ')
           .replace(/\n\s*\n/g, '\n')
           .trim()
 
         console.log(`Clean content length for ${url}: ${cleanContent.length}`)
-        console.log(`Content preview: ${cleanContent.substring(0, 200)}...`)
+        console.log(`Content preview: "${cleanContent.substring(0, 300)}..."`)
 
-        // More lenient content length check - accept pages with at least 50 characters of meaningful content
-        if (cleanContent.length < 50) {
+        // Be more lenient with content length - accept any meaningful text
+        if (cleanContent.length < 20) {
           console.log(`Skipping ${url} - content too short: ${cleanContent.length} chars`)
           return null
         }
@@ -140,11 +143,6 @@ serve(async (req) => {
       while ((match = linkRegex.exec(html)) !== null) {
         let href = match[1]
         
-        // Skip external links (but allow same domain)
-        if (href.startsWith('http') && !href.includes(new URL(baseUrl).hostname)) {
-          continue
-        }
-        
         // Skip anchors, email, and other non-content links
         if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) {
           continue
@@ -161,7 +159,15 @@ serve(async (req) => {
           const fullUrl = new URL(href, baseUrl).href
           // Remove fragments and query parameters for consistency
           const cleanUrl = fullUrl.split('#')[0].split('?')[0]
-          links.add(cleanUrl)
+          
+          // For your wiki, specifically look for /Published/ paths and other content paths
+          const baseUrlObj = new URL(baseUrl)
+          const linkUrlObj = new URL(cleanUrl)
+          
+          // Only include links from the same domain
+          if (linkUrlObj.hostname === baseUrlObj.hostname) {
+            links.add(cleanUrl)
+          }
         } catch (e) {
           // Invalid URL, skip
           continue
@@ -209,28 +215,24 @@ serve(async (req) => {
       }
     }
 
-    // Start with the base URL and some common wiki entry points
-    const discoveredUrls = new Set([baseUrl])
+    // Start with more targeted discovery for your wiki structure
+    const discoveredUrls = new Set<string>()
     const processedUrls = new Set<string>()
-    const maxPages = 150 // Increased limit
+    const maxPages = 100
     let pagesScraped = 0
 
-    // Add more comprehensive seed URLs for wiki discovery
+    // Add the base URL and explore from there
     const baseUrlObj = new URL(baseUrl)
+    
+    // Start with the provided URL and common paths
     const seedUrls = [
-      `${baseUrl}`,
-      `${baseUrl}/`,
-      `${baseUrl}/index.html`,
-      `${baseUrl}/index.php`,
-      `${baseUrl}/Main_Page`,
-      `${baseUrl}/Home`,
-      `${baseUrl}/Published`,
-      `${baseUrl}/wiki`,
-      `${baseUrl}/pages`,
-      `${baseUrl}/content`,
-      // Try common wiki patterns
-      `${baseUrlObj.origin}/wiki/Main_Page`,
-      `${baseUrlObj.origin}/w/index.php`,
+      baseUrl,
+      `${baseUrlObj.origin}/Published/`,
+      `${baseUrlObj.origin}/Published/Common+Lore/`,
+      `${baseUrlObj.origin}/Published/Common+Lore/The+Whispering+Gyre/`,
+      `${baseUrlObj.origin}/Published/Common+Lore/The+Whispering+Gyre`,
+      `${baseUrlObj.origin}/`,
+      `${baseUrlObj.origin}/Published`,
     ]
 
     seedUrls.forEach(url => {
@@ -238,15 +240,15 @@ serve(async (req) => {
         const normalizedUrl = new URL(url).href
         discoveredUrls.add(normalizedUrl)
       } catch (e) {
-        // Invalid URL, skip
+        console.log(`Invalid seed URL: ${url}`)
       }
     })
 
-    console.log(`Starting with ${discoveredUrls.size} seed URLs`)
+    console.log(`Starting with ${discoveredUrls.size} seed URLs:`, Array.from(discoveredUrls))
 
-    // Process URLs in batches with better discovery
+    // Process URLs in batches
     while (discoveredUrls.size > 0 && pagesScraped < maxPages) {
-      const urlsToProcess = Array.from(discoveredUrls).slice(0, 5) // Smaller batches for better debugging
+      const urlsToProcess = Array.from(discoveredUrls).slice(0, 3) // Smaller batches
       urlsToProcess.forEach(url => {
         discoveredUrls.delete(url)
         processedUrls.add(url)
@@ -265,8 +267,8 @@ serve(async (req) => {
           continue
         }
 
-        // Extract links from this page for future discovery (but only if we haven't hit our limit)
-        if (discoveredUrls.size < maxPages * 2) { // Allow more URL discovery
+        // Extract links from this page for future discovery
+        if (discoveredUrls.size < maxPages * 3) {
           const newLinks = extractLinks(pageData.rawHtml, baseUrl)
           let newLinksAdded = 0
           newLinks.forEach(link => {
@@ -323,7 +325,7 @@ serve(async (req) => {
         console.log(`   Content length: ${pageData.content.length}`)
 
         // Add a small delay to be respectful to the server
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await new Promise(resolve => setTimeout(resolve, 1500))
       }
       
       console.log(`Batch complete. Pages scraped so far: ${pagesScraped}`)
@@ -358,4 +360,3 @@ serve(async (req) => {
     )
   }
 })
-
