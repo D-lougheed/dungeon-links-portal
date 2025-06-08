@@ -22,7 +22,7 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: "Greetings, seeker of ancient knowledge. I am your guide through the mysteries and lore of this realm. I can only share what has been preserved in the sacred texts and chronicles that have been gathered. What ancient secrets do you wish to uncover?",
+      content: "Greetings, seeker of ancient knowledge. I am your guide through the mysteries and lore of this realm. I can share what has been preserved in the sacred texts and chronicles, and when needed, I can also expand upon the existing lore to help answer your questions and enhance your understanding of this world. What ancient secrets or campaign mysteries do you wish to explore?",
       isUser: false,
       timestamp: new Date()
     }
@@ -112,7 +112,7 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
             <Sparkles className="h-8 w-8" />
             <div>
               <h1 className="text-2xl font-bold">Slumbering Ancients AI Assistant</h1>
-              <p className="text-purple-100 text-sm">Knowledge from the Sacred Chronicles</p>
+              <p className="text-purple-100 text-sm">Ancient Knowledge & Creative Expansion</p>
             </div>
           </div>
         </div>
@@ -123,26 +123,26 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
           <CardHeader>
             <CardTitle className="text-purple-900 flex items-center">
               <Sparkles className="h-5 w-5 mr-2" />
-              Ancient Knowledge Repository
+              Enhanced Ancient Knowledge Repository
             </CardTitle>
             <CardDescription>
-              This AI assistant can only answer questions based on the campaign materials that have been 
-              scraped from your Google Drive. Ask about ancient lore, mysteries, NPCs, locations, and 
-              other campaign details that exist in your documented materials.
+              This AI assistant draws from your campaign materials and can also create new content 
+              that fits your world when needed. It specializes in ancient lore, mysteries, and 
+              campaign enhancement while maintaining consistency with your established world.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="bg-purple-50 border border-purple-200 p-4 rounded-lg">
-              <h3 className="font-semibold text-purple-900 mb-2">What this assistant knows:</h3>
+              <h3 className="font-semibold text-purple-900 mb-2">What this assistant can do:</h3>
               <ul className="text-purple-700 space-y-1">
-                <li>• Information from your scraped markdown files</li>
-                <li>• Campaign lore and world-building details</li>
-                <li>• Character backgrounds and histories</li>
-                <li>• Location descriptions and mysteries</li>
-                <li>• Quest details and plot hooks from your materials</li>
+                <li>• <strong>Reference existing lore:</strong> Information from your scraped campaign materials</li>
+                <li>• <strong>Expand creatively:</strong> Generate new content that fits your world's tone and themes</li>
+                <li>• <strong>Connect ideas:</strong> Draw logical connections between different pieces of lore</li>
+                <li>• <strong>Enhance campaigns:</strong> Suggest how new elements might integrate with existing materials</li>
+                <li>• <strong>Maintain consistency:</strong> Keep all responses true to your established world-building</li>
               </ul>
               <p className="text-purple-600 text-sm mt-3 italic">
-                Note: The assistant can only provide information that exists in your scraped campaign materials.
+                The assistant will clearly indicate when it's drawing from existing materials versus creating new content.
               </p>
             </div>
           </CardContent>
@@ -210,7 +210,7 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="Ask about the ancient lore and mysteries..."
+                  placeholder="Ask about ancient lore, request new content, or explore campaign mysteries..."
                   className="flex-1"
                   disabled={isLoading}
                 />

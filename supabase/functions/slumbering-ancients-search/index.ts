@@ -52,88 +52,75 @@ serve(async (req) => {
 
     console.log(`🤖 Generated embedding for query`);
 
-    // Search for similar content using vector similarity
-    const { data: similarContent, error: searchError } = await supabase.rpc(
-      'match_documents',
-      {
-        query_embedding: queryEmbedding,
-        match_threshold: 0.7,
-        match_count: 5
-      }
-    );
+    let similarContent = [];
+    let searchError = null;
 
-    if (searchError) {
-      console.error('Search error:', searchError);
-      // Fallback to simple text search if vector search fails
+    // Try vector search first
+    try {
+      const { data: vectorResults, error: vectorError } = await supabase.rpc(
+        'match_documents',
+        {
+          query_embedding: queryEmbedding,
+          match_threshold: 0.7,
+          match_count: 5
+        }
+      );
+
+      if (vectorError) {
+        throw vectorError;
+      }
+
+      similarContent = vectorResults || [];
+    } catch (error) {
+      console.error('Vector search error:', error);
+      searchError = error;
+      
+      // Fallback to simple text search
       const { data: fallbackContent } = await supabase
         .from('wiki_content')
         .select('title, content, url')
         .textSearch('content', message.split(' ').join(' | '))
-        .limit(3);
+        .limit(5);
       
-      if (!fallbackContent || fallbackContent.length === 0) {
-        return new Response(JSON.stringify({ 
-          response: "I apologize, but I couldn't find any relevant information in the scraped data about your question. Please try rephrasing your question or ask about topics that might be covered in the campaign materials." 
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      // Use fallback content for context
-      const contextText = fallbackContent.map(doc => `Title: ${doc.title}\nContent: ${doc.content}`).join('\n\n---\n\n');
-      
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openAIApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: `You are the Slumbering Ancients AI assistant, specialized in ancient lore and mysteries from a D&D campaign. You can ONLY answer questions based on the provided campaign materials. If the information is not in the provided context, you must say so and suggest the user ask about topics that are covered in the materials.
-
-Context from campaign materials:
-${contextText}
-
-Important: Only use information from the provided context. Do not make up or infer information that isn't explicitly stated in the materials.`
-            },
-            {
-              role: 'user',
-              content: message
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 1000,
-        }),
-      });
-
-      const data = await response.json();
-      return new Response(JSON.stringify({ response: data.choices[0].message.content }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      similarContent = fallbackContent || [];
     }
 
-    console.log(`📚 Found ${similarContent?.length || 0} similar documents`);
-
-    if (!similarContent || similarContent.length === 0) {
-      return new Response(JSON.stringify({ 
-        response: "I apologize, but I couldn't find any relevant information in the scraped campaign materials about your question. Please try asking about topics that are covered in the ancient lore and mysteries documentation." 
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    console.log(`📚 Found ${similarContent.length} similar documents`);
 
     // Prepare context from similar documents
-    const contextText = similarContent
-      .map(doc => `Title: ${doc.title}\nContent: ${doc.content}`)
-      .join('\n\n---\n\n');
+    let contextText = '';
+    if (similarContent.length > 0) {
+      contextText = similarContent
+        .map(doc => `Title: ${doc.title}\nContent: ${doc.content}`)
+        .join('\n\n---\n\n');
+    }
 
-    console.log(`📖 Using context from ${similarContent.length} documents`);
+    // Enhanced system prompt that handles both database content and creative requests
+    const systemPrompt = `You are the Slumbering Ancients AI assistant, a wise and knowledgeable guide specializing in ancient lore, mysteries, and D&D campaign knowledge. You have access to campaign materials that have been gathered from sacred texts and chronicles.
 
-    // Generate response using OpenAI with the context
+CORE CAPABILITIES:
+1. **Primary Knowledge**: Answer questions based on the provided campaign materials below
+2. **Creative Expansion**: When asked about topics not directly covered in the materials, you can:
+   - Draw logical connections and expand on related themes from the existing lore
+   - Create new content that fits the established world and tone
+   - Suggest how new elements might connect to existing campaign materials
+   - Generate ideas that complement the existing narrative
+
+GUIDELINES:
+- Always prioritize information from the provided campaign materials when available
+- When creating new content, clearly indicate it's an expansion or creative interpretation
+- Maintain consistency with the established tone, themes, and world-building
+- If asked about something completely unrelated to the campaign, politely redirect to campaign-relevant topics
+- Be detailed and immersive in your responses, drawing connections between different pieces of lore when relevant
+
+${contextText ? `CAMPAIGN MATERIALS CONTEXT:
+${contextText}
+
+` : 'No specific campaign materials found for this query, but you can still provide creative content that fits the Slumbering Ancients theme and world.'}
+
+Remember: You can both reference existing materials AND create new content that enhances the campaign world. Be creative while staying true to the established lore and atmosphere.`;
+
+    // Generate response using OpenAI
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -145,22 +132,15 @@ Important: Only use information from the provided context. Do not make up or inf
         messages: [
           {
             role: 'system',
-            content: `You are the Slumbering Ancients AI assistant, specialized in ancient lore and mysteries from a D&D campaign. You can ONLY answer questions based on the provided campaign materials below. If the information is not in the provided context, you must say so and suggest the user ask about topics that are covered in the materials.
-
-Be detailed and immersive in your responses, drawing connections between different pieces of lore when relevant. Always cite which documents or sources you're drawing from when possible.
-
-Context from campaign materials:
-${contextText}
-
-Important: Only use information from the provided context. Do not make up or infer information that isn't explicitly stated in the materials.`
+            content: systemPrompt
           },
           {
             role: 'user',
             content: message
           }
         ],
-        temperature: 0.7,
-        max_tokens: 1000,
+        temperature: 0.8, // Increased for more creative responses
+        max_tokens: 1500, // Increased for more detailed responses
       }),
     });
 
