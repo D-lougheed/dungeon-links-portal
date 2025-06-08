@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -12,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { incremental = false, getMissing = false } = await req.json()
+    const { incremental = false, getMissing = false, streaming = false } = await req.json()
     
     // Get configuration from environment variables
     const googleApiKey = Deno.env.get('GDrive_APIKey')

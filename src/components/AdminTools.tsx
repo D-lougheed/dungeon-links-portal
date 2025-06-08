@@ -6,6 +6,7 @@ import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, Re
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import ScrapeProgress from './ScrapeProgress';
 
 interface AdminToolsProps {
   onBack: () => void;
@@ -20,6 +21,17 @@ interface ScrapingStatus {
   discoveredUrls?: string[];
 }
 
+interface ProgressState {
+  isActive: boolean;
+  totalFiles: number;
+  processedFiles: number;
+  skippedFiles: number;
+  currentFile?: string;
+  stage?: string;
+  errors: string[];
+  mode?: string;
+}
+
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isIncrementalLoading, setIsIncrementalLoading] = useState(false);
@@ -28,6 +40,13 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
   const [scrapingDetails, setScrapingDetails] = useState<ScrapingStatus>({});
   const [wikiStats, setWikiStats] = useState({ totalPages: 0, lastUpdate: null });
   const [wikiPages, setWikiPages] = useState<any[]>([]);
+  const [progressState, setProgressState] = useState<ProgressState>({
+    isActive: false,
+    totalFiles: 0,
+    processedFiles: 0,
+    skippedFiles: 0,
+    errors: [],
+  });
   const { toast } = useToast();
 
   useEffect(() => {
@@ -74,6 +93,17 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
     setScraperStatus(`Starting ${incremental ? 'incremental' : 'full'} Google Drive scraping...`);
     setScrapingDetails({});
     
+    // Reset and activate progress state
+    setProgressState({
+      isActive: true,
+      totalFiles: 0,
+      processedFiles: 0,
+      skippedFiles: 0,
+      errors: [],
+      mode: incremental ? 'incremental' : 'full',
+      stage: 'Discovering files...'
+    });
+    
     try {
       console.log(`Starting ${incremental ? 'incremental' : 'full'} scrape with configured Google Drive folder`);
       
@@ -84,6 +114,16 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       console.log('Scrape response:', data, error);
 
       if (error) throw error;
+
+      // Update progress state with final results
+      setProgressState(prev => ({
+        ...prev,
+        isActive: false,
+        totalFiles: data.totalDiscovered,
+        processedFiles: data.pagesScraped,
+        skippedFiles: data.pagesSkipped,
+        stage: 'Complete'
+      }));
 
       const modeText = incremental ? 'incremental (recent changes only)' : 'full';
       setScraperStatus(`Successfully completed ${modeText} scraping: ${data.pagesScraped} files out of ${data.totalDiscovered} discovered .md files`);
@@ -108,6 +148,15 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         stage: 'Error',
         errors: [error.message]
       });
+      
+      // Update progress state with error
+      setProgressState(prev => ({
+        ...prev,
+        isActive: false,
+        errors: [error.message],
+        stage: 'Error'
+      }));
+      
       toast({
         title: "Scraping Failed",
         description: "There was an error scraping Google Drive. This may be due to rate limiting - try the incremental scan or wait a few minutes.",
@@ -123,6 +172,17 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
     setScraperStatus('Starting missing files scan...');
     setScrapingDetails({});
     
+    // Reset and activate progress state
+    setProgressState({
+      isActive: true,
+      totalFiles: 0,
+      processedFiles: 0,
+      skippedFiles: 0,
+      errors: [],
+      mode: 'missing',
+      stage: 'Scanning for missing files...'
+    });
+    
     try {
       console.log('Starting missing files scan');
       
@@ -133,6 +193,16 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       console.log('Missing files scan response:', data, error);
 
       if (error) throw error;
+
+      // Update progress state with final results
+      setProgressState(prev => ({
+        ...prev,
+        isActive: false,
+        totalFiles: data.totalDiscovered,
+        processedFiles: data.pagesScraped,
+        skippedFiles: data.pagesSkipped,
+        stage: 'Complete'
+      }));
 
       setScraperStatus(`Missing files scan complete: Found ${data.missingFiles} missing files, successfully processed ${data.pagesScraped} out of ${data.totalDiscovered} discovered files`);
       
@@ -156,6 +226,15 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         stage: 'Error',
         errors: [error.message]
       });
+      
+      // Update progress state with error
+      setProgressState(prev => ({
+        ...prev,
+        isActive: false,
+        errors: [error.message],
+        stage: 'Error'
+      }));
+      
       toast({
         title: "Missing Files Scan Failed",
         description: "There was an error scanning for missing files. This may be due to rate limiting - try again in a few minutes.",
@@ -253,6 +332,22 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {/* Progress Bar - Show when scraping is active or has results */}
+        {(progressState.isActive || progressState.totalFiles > 0) && (
+          <div className="mb-6">
+            <ScrapeProgress
+              isActive={progressState.isActive}
+              totalFiles={progressState.totalFiles}
+              processedFiles={progressState.processedFiles}
+              skippedFiles={progressState.skippedFiles}
+              currentFile={progressState.currentFile}
+              stage={progressState.stage}
+              errors={progressState.errors}
+              mode={progressState.mode}
+            />
+          </div>
+        )}
+
         {/* Google Drive Scraping Section */}
         <Card className="border-slate-200 mb-6">
           <CardHeader>
