@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -14,17 +13,26 @@ import {
   Crown,
   Compass,
   Bot,
-  Sparkles
+  Sparkles,
+  Settings
 } from 'lucide-react';
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
+import AdminTools from './AdminTools';
 
 const Dashboard = () => {
   const { logout } = useAuth();
   const [activeFeature, setActiveFeature] = useState<string | null>(null);
 
   const features = [
+    {
+      id: "admin-tools",
+      title: "Admin Tools",
+      description: "Wiki scraping, database management, and AI configuration",
+      icon: Settings,
+      status: "Available"
+    },
     {
       id: "general-ai-assistant",
       title: "General AI Assistant",
@@ -102,6 +110,10 @@ const Dashboard = () => {
       setActiveFeature(featureId);
     }
   };
+
+  if (activeFeature === "admin-tools") {
+    return <AdminTools onBack={() => setActiveFeature(null)} />;
+  }
 
   if (activeFeature === "general-ai-assistant") {
     return <GeneralAIAssistant onBack={() => setActiveFeature(null)} />;
