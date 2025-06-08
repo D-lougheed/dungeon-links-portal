@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw, Clock, Zap } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -22,6 +22,7 @@ interface ScrapingStatus {
 
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isIncrementalLoading, setIsIncrementalLoading] = useState(false);
   const [scraperStatus, setScraperStatus] = useState('');
   const [scrapingDetails, setScrapingDetails] = useState<ScrapingStatus>({});
   const [wikiStats, setWikiStats] = useState({ totalPages: 0, lastUpdate: null });
@@ -65,26 +66,30 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
     }
   };
 
-  const handleScrapeGoogleDrive = async () => {
-    setIsLoading(true);
-    setScraperStatus('Starting Google Drive scraping...');
+  const handleScrapeGoogleDrive = async (incremental = false) => {
+    const setLoadingState = incremental ? setIsIncrementalLoading : setIsLoading;
+    
+    setLoadingState(true);
+    setScraperStatus(`Starting ${incremental ? 'incremental' : 'full'} Google Drive scraping...`);
     setScrapingDetails({});
     
     try {
-      console.log('Starting scrape with configured Google Drive folder');
+      console.log(`Starting ${incremental ? 'incremental' : 'full'} scrape with configured Google Drive folder`);
       
-      // Call the edge function to scrape Google Drive (no body needed now)
       const { data, error } = await supabase.functions.invoke('scrape-wiki', {
-        body: {}
+        body: { incremental }
       });
 
       console.log('Scrape response:', data, error);
 
       if (error) throw error;
 
-      setScraperStatus(`Successfully scraped ${data.pagesScraped} files out of ${data.totalDiscovered} discovered .md files`);
+      const modeText = incremental ? 'incremental (recent changes only)' : 'full';
+      setScraperStatus(`Successfully completed ${modeText} scraping: ${data.pagesScraped} files out of ${data.totalDiscovered} discovered .md files`);
+      
       setScrapingDetails({
         pagesProcessed: data.pagesScraped,
+        pagesSkipped: data.pagesSkipped,
         stage: 'Complete'
       });
       
@@ -92,23 +97,23 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       await loadWikiPages();
       
       toast({
-        title: "Google Drive Scraping Complete",
-        description: `Successfully processed ${data.pagesScraped} markdown files from ${data.totalDiscovered} discovered files.`,
+        title: `${incremental ? 'Incremental' : 'Full'} Google Drive Scraping Complete`,
+        description: `Successfully processed ${data.pagesScraped} markdown files from ${data.totalDiscovered} discovered files.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
       });
     } catch (error) {
       console.error('Scraping error:', error);
-      setScraperStatus('Error occurred during scraping: ' + error.message);
+      setScraperStatus(`Error occurred during ${incremental ? 'incremental' : 'full'} scraping: ` + error.message);
       setScrapingDetails({
         stage: 'Error',
         errors: [error.message]
       });
       toast({
         title: "Scraping Failed",
-        description: "There was an error scraping Google Drive. Please check the configuration and API access.",
+        description: "There was an error scraping Google Drive. This may be due to rate limiting - try the incremental scan or wait a few minutes.",
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      setLoadingState(false);
     }
   };
 
@@ -122,7 +127,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       const { error } = await supabase
         .from('wiki_content')
         .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // This will delete all rows
+        .neq('id', '00000000-0000-0000-0000-000000000000');
 
       if (error) throw error;
 
@@ -207,7 +212,8 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
               Google Drive Content Scraper
             </CardTitle>
             <CardDescription>
-              Automatically scan the configured Google Drive folder for .md files and update the knowledge base.
+              Automatically scan the configured Google Drive folder for .md files and update the knowledge base. 
+              Use incremental scan for recent changes only (last 7 days) to avoid rate limiting.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -219,18 +225,30 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <li>• Target Folder: Configured (via secrets)</li>
                   <li>• Scan Mode: Recursive (includes subfolders)</li>
                   <li>• File Types: .md (Markdown files only)</li>
+                  <li>• Rate Limiting: Enhanced with exponential backoff</li>
+                  <li>• Incremental Mode: Available (scans last 7 days)</li>
                 </ul>
               </div>
               
-              <div className="flex space-x-3">
+              <div className="flex flex-wrap gap-3">
                 <Button 
-                  onClick={handleScrapeGoogleDrive}
-                  disabled={isLoading}
+                  onClick={() => handleScrapeGoogleDrive(false)}
+                  disabled={isLoading || isIncrementalLoading}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   {isLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-                  {isLoading ? 'Scraping...' : 'Start Scraping'}
+                  {isLoading ? 'Full Scraping...' : 'Full Scrape'}
                 </Button>
+                
+                <Button 
+                  onClick={() => handleScrapeGoogleDrive(true)}
+                  disabled={isLoading || isIncrementalLoading}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isIncrementalLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
+                  {isIncrementalLoading ? 'Quick Scraping...' : 'Quick Scrape (Recent)'}
+                </Button>
+                
                 <Button 
                   onClick={handleExportData}
                   variant="outline"
@@ -239,6 +257,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <Download className="h-4 w-4 mr-2" />
                   Export Data
                 </Button>
+                
                 <Button 
                   onClick={handleClearDatabase}
                   variant="destructive"
@@ -246,6 +265,16 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <Trash2 className="h-4 w-4 mr-2" />
                   Clear Database
                 </Button>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
+                <h4 className="font-medium text-amber-900 mb-1">💡 Pro Tips</h4>
+                <ul className="text-sm text-amber-800 space-y-1">
+                  <li>• Use <strong>Quick Scrape</strong> for daily updates - only scans files modified in the last 7 days</li>
+                  <li>• Use <strong>Full Scrape</strong> for initial setup or after major changes</li>
+                  <li>• If you see 403 errors, wait 5-10 minutes before trying again</li>
+                  <li>• The scraper now has enhanced rate limiting to avoid Google's automated query detection</li>
+                </ul>
               </div>
 
               {scraperStatus && (
@@ -256,6 +285,9 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   )}
                   {scrapingDetails.pagesProcessed !== undefined && (
                     <p className="text-slate-600 text-sm">Files Processed: {scrapingDetails.pagesProcessed}</p>
+                  )}
+                  {scrapingDetails.pagesSkipped !== undefined && (
+                    <p className="text-slate-600 text-sm">Files Skipped: {scrapingDetails.pagesSkipped}</p>
                   )}
                   {scrapingDetails.errors && scrapingDetails.errors.length > 0 && (
                     <div className="text-red-600 text-sm mt-2">
@@ -360,10 +392,11 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <li>• Vector embedding dimensions: 1536 (OpenAI compatible)</li>
                 <li>• Similarity search algorithm: Cosine similarity</li>
                 <li>• Content processing: Automatic markdown cleaning and embedding</li>
-                <li>• Update frequency: Manual via scraper</li>
+                <li>• Update frequency: Manual via scraper (full or incremental)</li>
                 <li>• Source: Google Drive .md files (configured folder)</li>
                 <li>• Recursive folder scanning: Enabled</li>
                 <li>• Content deduplication: Hash-based change detection</li>
+                <li>• Rate limiting: Enhanced with exponential backoff and retry logic</li>
               </ul>
             </div>
           </CardContent>

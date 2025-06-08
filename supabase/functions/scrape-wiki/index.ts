@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -12,6 +13,8 @@ serve(async (req) => {
   }
 
   try {
+    const { incremental = false } = await req.json()
+    
     // Get configuration from environment variables
     const googleApiKey = Deno.env.get('GDrive_APIKey')
     const folderId = Deno.env.get('Google_FolderID')
@@ -30,45 +33,94 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     console.log(`🚀 GOOGLE DRIVE SCRAPER STARTED: ${folderId}`)
+    console.log(`📊 MODE: ${incremental ? 'INCREMENTAL (Recent changes only)' : 'FULL SCAN'}`)
     console.log(`📊 CONFIGURATION:`)
     console.log(`   - Folder ID: ${folderId}`)
     console.log(`   - API Key: ${googleApiKey.substring(0, 10)}...`)
     console.log(`   - Target: All .md files in folder and subfolders`)
 
-    // Get OpenAI API key (using the correct secret name)
+    // Get OpenAI API key
     const openaiApiKey = Deno.env.get('CGPTkey')
     if (!openaiApiKey) {
       throw new Error('OpenAI API key not configured')
     }
 
+    // Enhanced rate limiting with exponential backoff
+    let requestDelay = 1000 // Start with 1 second delay
+    const maxDelay = 10000 // Maximum 10 seconds
+    const delayMultiplier = 1.5
+    let consecutiveErrors = 0
+
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+    // Function to make API calls with retry logic
+    const makeApiCall = async (url: string, retries = 3): Promise<Response> => {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          console.log(`🌐 API Call attempt ${attempt}/${retries}: ${url.replace(googleApiKey, 'API_KEY_HIDDEN')}`)
+          
+          const response = await fetch(url)
+          
+          if (response.status === 403) {
+            const errorText = await response.text()
+            if (errorText.includes('automated queries')) {
+              console.log(`⚠️  Rate limit detected on attempt ${attempt}, increasing delay...`)
+              requestDelay = Math.min(requestDelay * delayMultiplier, maxDelay)
+              consecutiveErrors++
+              
+              if (attempt < retries) {
+                const backoffDelay = requestDelay * (attempt * 2)
+                console.log(`⏰ Waiting ${backoffDelay}ms before retry...`)
+                await sleep(backoffDelay)
+                continue
+              }
+            }
+            throw new Error(`Google API 403: ${errorText.substring(0, 200)}...`)
+          }
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+          }
+          
+          // Success - reset error tracking
+          consecutiveErrors = 0
+          if (requestDelay > 1000) {
+            requestDelay = Math.max(1000, requestDelay / delayMultiplier)
+            console.log(`✅ Success! Reducing delay to ${requestDelay}ms`)
+          }
+          
+          return response
+        } catch (error) {
+          console.error(`💥 API call failed (attempt ${attempt}):`, error.message)
+          if (attempt === retries) {
+            throw error
+          }
+          await sleep(2000 * attempt) // Progressive delay between retries
+        }
+      }
+      throw new Error('All retry attempts failed')
+    }
+
+    // Get cutoff time for incremental scraping (last 7 days)
+    const incrementalCutoff = incremental ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() : null
+
     // Function to recursively get all files from a Google Drive folder
     const getAllMarkdownFiles = async (folderId: string, path: string = '') => {
       console.log(`🔍 SCANNING FOLDER: ${folderId} (${path || 'root'})`)
       
-      // Updated API call format with proper encoding and fields
-      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink)&pageSize=100`
+      // Enhanced API call with fields for modification time
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime)&pageSize=100`
       
       try {
-        console.log(`🌐 API URL: ${url.replace(googleApiKey, 'API_KEY_HIDDEN')}`)
-        const response = await fetch(url)
-        console.log(`📡 API Response Status: ${response.status} ${response.statusText}`)
-        
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error(`💥 API Error Response Body: ${errorText}`)
-          throw new Error(`Google Drive API error: ${response.status} ${response.statusText} - ${errorText}`)
-        }
+        await sleep(requestDelay) // Rate limiting
+        const response = await makeApiCall(url)
         
         const data = await response.json()
         const files = data.files || []
         console.log(`📁 Found ${files.length} items in folder`)
         
         if (files.length === 0) {
-          console.log(`⚠️  No files found. This could mean:`)
-          console.log(`   - The folder is empty`)
-          console.log(`   - The API key doesn't have access to this folder`)
-          console.log(`   - The folder ID is incorrect`)
-          console.log(`   - The folder is not publicly accessible`)
+          console.log(`⚠️  No files found in folder`)
         }
         
         const allFiles = []
@@ -82,15 +134,24 @@ serve(async (req) => {
             const subfolderFiles = await getAllMarkdownFiles(file.id, currentPath)
             allFiles.push(...subfolderFiles)
           } else if (file.name.endsWith('.md')) {
-            console.log(`📄 Found markdown file: ${currentPath}`)
+            // Check if file should be included in incremental scan
+            if (incremental && incrementalCutoff && file.modifiedTime) {
+              if (file.modifiedTime < incrementalCutoff) {
+                console.log(`⏭️  Skipping old file: ${currentPath} (modified: ${file.modifiedTime})`)
+                continue
+              }
+            }
+            
+            console.log(`📄 Found markdown file: ${currentPath} ${incremental ? `(modified: ${file.modifiedTime})` : ''}`)
             allFiles.push({
               id: file.id,
               name: file.name,
               path: currentPath,
-              webViewLink: file.webViewLink
+              webViewLink: file.webViewLink,
+              modifiedTime: file.modifiedTime
             })
           } else {
-            console.log(`📄 Skipping non-markdown file: ${currentPath} (${file.mimeType})`)
+            console.log(`📄 Skipping non-markdown file: ${currentPath}`)
           }
         }
         
@@ -101,19 +162,15 @@ serve(async (req) => {
       }
     }
 
-    // Function to download file content from Google Drive
+    // Function to download file content from Google Drive with retry logic
     const downloadFileContent = async (fileId: string, fileName: string) => {
       console.log(`⬇️  DOWNLOADING: ${fileName}`)
       
       const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${googleApiKey}`
       
       try {
-        const response = await fetch(url)
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error(`💥 Download Error: ${response.status} ${response.statusText} - ${errorText}`)
-          throw new Error(`Failed to download ${fileName}: ${response.status} - ${errorText}`)
-        }
+        await sleep(requestDelay) // Rate limiting
+        const response = await makeApiCall(url)
         
         const content = await response.text()
         console.log(`✅ Downloaded ${fileName}: ${content.length} characters`)
@@ -165,28 +222,20 @@ serve(async (req) => {
 
     // Function to extract title from markdown content
     const extractTitle = (content: string, fileName: string) => {
-      // Try to find h1 header first
       const h1Match = content.match(/^#\s+(.+)$/m)
       if (h1Match) {
         return h1Match[1].trim()
       }
-      
-      // Fallback to filename without extension
       return fileName.replace(/\.md$/, '').replace(/[-_]/g, ' ')
     }
 
     // Function to clean markdown content for better embedding
     const cleanMarkdownContent = (content: string) => {
       return content
-        // Remove code blocks
         .replace(/```[\s\S]*?```/g, '')
-        // Remove inline code
         .replace(/`[^`]+`/g, '')
-        // Remove markdown links but keep text
         .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        // Remove markdown formatting
         .replace(/[#*_~`]/g, '')
-        // Remove excessive whitespace
         .replace(/\s+/g, ' ')
         .trim()
     }
@@ -205,7 +254,8 @@ serve(async (req) => {
           pagesScraped: 0,
           pagesSkipped: 0,
           totalDiscovered: 0,
-          message: 'No markdown files found in the specified folder. Check folder permissions and API key access.' 
+          incremental,
+          message: 'No markdown files found in the specified folder or timeframe.' 
         }),
         { 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -216,6 +266,7 @@ serve(async (req) => {
     // Process discovered files
     let pagesScraped = 0
     let pagesSkipped = 0
+    let rateLimitErrors = 0
     const processedFiles = []
 
     for (const file of markdownFiles) {
@@ -225,6 +276,11 @@ serve(async (req) => {
       if (!content) {
         console.log(`⏭️  SKIPPED: Could not download content`)
         pagesSkipped++
+        
+        // Check if this was a rate limit error
+        if (consecutiveErrors > 0) {
+          rateLimitErrors++
+        }
         continue
       }
 
@@ -285,15 +341,17 @@ serve(async (req) => {
       processedFiles.push(file.path)
       console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars)`)
       
-      // Rate limiting
-      await new Promise(resolve => setTimeout(resolve, 200))
+      // Adaptive rate limiting based on success
+      await sleep(requestDelay)
     }
 
     console.log(`\n🏁 GOOGLE DRIVE SCRAPING COMPLETE!`)
     console.log(`   📊 FINAL STATISTICS:`)
+    console.log(`   - Mode: ${incremental ? 'INCREMENTAL' : 'FULL'}`)
     console.log(`   - Files discovered: ${markdownFiles.length}`)
     console.log(`   - Files successfully scraped: ${pagesScraped}`)
     console.log(`   - Files skipped: ${pagesSkipped}`)
+    console.log(`   - Rate limit errors: ${rateLimitErrors}`)
 
     return new Response(
       JSON.stringify({ 
@@ -301,8 +359,10 @@ serve(async (req) => {
         pagesScraped,
         pagesSkipped,
         totalDiscovered: markdownFiles.length,
-        processedFiles: processedFiles.slice(0, 50), // Return first 50 for reference
-        message: `Google Drive scraping complete: Found ${markdownFiles.length} .md files, scraped ${pagesScraped} files` 
+        rateLimitErrors,
+        incremental,
+        processedFiles: processedFiles.slice(0, 50),
+        message: `Google Drive scraping complete: Found ${markdownFiles.length} .md files, scraped ${pagesScraped} files${incremental ? ' (incremental mode)' : ''}` 
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
