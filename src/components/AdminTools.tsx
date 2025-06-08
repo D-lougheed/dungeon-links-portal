@@ -88,9 +88,12 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
 
   const handleScrapeGoogleDrive = async (incremental = false) => {
     const setLoadingState = incremental ? setIsIncrementalLoading : setIsLoading;
+    const mode = incremental ? 'incremental' : 'full';
+    
+    console.log(`🚀 Starting ${mode} Google Drive scraping...`);
     
     setLoadingState(true);
-    setScraperStatus(`Starting ${incremental ? 'incremental' : 'full'} Google Drive scraping...`);
+    setScraperStatus(`Starting ${mode} Google Drive scraping...`);
     setScrapingDetails({});
     
     // Reset and activate progress state
@@ -100,38 +103,67 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       processedFiles: 0,
       skippedFiles: 0,
       errors: [],
-      mode: incremental ? 'incremental' : 'full',
-      stage: 'Discovering files...'
+      mode,
+      stage: 'Initializing...'
     });
     
     try {
-      console.log(`Starting ${incremental ? 'incremental' : 'full'} scrape with configured Google Drive folder`);
+      console.log(`📡 Invoking scrape-wiki edge function with incremental=${incremental}`);
+      
+      // Update progress to show we're calling the function
+      setProgressState(prev => ({
+        ...prev,
+        stage: 'Calling edge function...'
+      }));
+      
+      const startTime = Date.now();
       
       const { data, error } = await supabase.functions.invoke('scrape-wiki', {
         body: { incremental }
       });
 
-      console.log('Scrape response:', data, error);
+      const duration = Date.now() - startTime;
+      console.log(`⏱️ Edge function completed in ${duration}ms`);
+      console.log('📊 Edge function response:', { data, error });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Edge function error:', error);
+        throw error;
+      }
+
+      if (!data) {
+        console.error('❌ Edge function returned no data');
+        throw new Error('Edge function returned no data');
+      }
+
+      console.log('✅ Edge function completed successfully:', {
+        totalDiscovered: data.totalDiscovered,
+        pagesScraped: data.pagesScraped,
+        pagesSkipped: data.pagesSkipped,
+        rateLimitErrors: data.rateLimitErrors,
+        success: data.success
+      });
 
       // Update progress state with final results
       setProgressState(prev => ({
         ...prev,
         isActive: false,
-        totalFiles: data.totalDiscovered,
-        processedFiles: data.pagesScraped,
-        skippedFiles: data.pagesSkipped,
-        stage: 'Complete'
+        totalFiles: data.totalDiscovered || 0,
+        processedFiles: data.pagesScraped || 0,
+        skippedFiles: data.pagesSkipped || 0,
+        stage: 'Complete',
+        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
       }));
 
       const modeText = incremental ? 'incremental (recent changes only)' : 'full';
-      setScraperStatus(`Successfully completed ${modeText} scraping: ${data.pagesScraped} files out of ${data.totalDiscovered} discovered .md files`);
+      const statusMessage = `Successfully completed ${modeText} scraping: ${data.pagesScraped || 0} files out of ${data.totalDiscovered || 0} discovered .md files`;
+      setScraperStatus(statusMessage);
       
       setScrapingDetails({
-        pagesProcessed: data.pagesScraped,
-        pagesSkipped: data.pagesSkipped,
-        stage: 'Complete'
+        pagesProcessed: data.pagesScraped || 0,
+        pagesSkipped: data.pagesSkipped || 0,
+        stage: 'Complete',
+        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
       });
       
       await loadWikiStats();
@@ -139,35 +171,45 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       
       toast({
         title: `${incremental ? 'Incremental' : 'Full'} Google Drive Scraping Complete`,
-        description: `Successfully processed ${data.pagesScraped} markdown files from ${data.totalDiscovered} discovered files.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
+        description: `Successfully processed ${data.pagesScraped || 0} markdown files from ${data.totalDiscovered || 0} discovered files.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
       });
     } catch (error) {
-      console.error('Scraping error:', error);
-      setScraperStatus(`Error occurred during ${incremental ? 'incremental' : 'full'} scraping: ` + error.message);
+      console.error('💥 Scraping error:', error);
+      const errorMessage = error.message || 'Unknown error occurred';
+      console.error('💥 Error details:', {
+        message: errorMessage,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      setScraperStatus(`Error occurred during ${mode} scraping: ${errorMessage}`);
       setScrapingDetails({
         stage: 'Error',
-        errors: [error.message]
+        errors: [errorMessage]
       });
       
       // Update progress state with error
       setProgressState(prev => ({
         ...prev,
         isActive: false,
-        errors: [error.message],
+        errors: [errorMessage],
         stage: 'Error'
       }));
       
       toast({
         title: "Scraping Failed",
-        description: "There was an error scraping Google Drive. This may be due to rate limiting - try the incremental scan or wait a few minutes.",
+        description: `There was an error scraping Google Drive: ${errorMessage}. Check the console for more details.`,
         variant: "destructive",
       });
     } finally {
+      console.log(`🏁 ${mode} scraping process finished`);
       setLoadingState(false);
     }
   };
 
   const handleGetMissing = async () => {
+    console.log('🔍 Starting missing files scan...');
+    
     setIsMissingLoading(true);
     setScraperStatus('Starting missing files scan...');
     setScrapingDetails({});
@@ -180,36 +222,66 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       skippedFiles: 0,
       errors: [],
       mode: 'missing',
-      stage: 'Scanning for missing files...'
+      stage: 'Initializing missing files scan...'
     });
     
     try {
-      console.log('Starting missing files scan');
+      console.log('📡 Invoking scrape-wiki edge function with getMissing=true');
+      
+      // Update progress to show we're calling the function
+      setProgressState(prev => ({
+        ...prev,
+        stage: 'Calling edge function...'
+      }));
+      
+      const startTime = Date.now();
       
       const { data, error } = await supabase.functions.invoke('scrape-wiki', {
         body: { getMissing: true }
       });
 
-      console.log('Missing files scan response:', data, error);
+      const duration = Date.now() - startTime;
+      console.log(`⏱️ Missing files scan completed in ${duration}ms`);
+      console.log('📊 Missing files scan response:', { data, error });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Missing files scan error:', error);
+        throw error;
+      }
+
+      if (!data) {
+        console.error('❌ Missing files scan returned no data');
+        throw new Error('Missing files scan returned no data');
+      }
+
+      console.log('✅ Missing files scan completed successfully:', {
+        totalDiscovered: data.totalDiscovered,
+        missingFiles: data.missingFiles,
+        pagesScraped: data.pagesScraped,
+        pagesSkipped: data.pagesSkipped,
+        rateLimitErrors: data.rateLimitErrors,
+        success: data.success
+      });
 
       // Update progress state with final results
       setProgressState(prev => ({
         ...prev,
         isActive: false,
-        totalFiles: data.totalDiscovered,
-        processedFiles: data.pagesScraped,
-        skippedFiles: data.pagesSkipped,
-        stage: 'Complete'
+        totalFiles: data.totalDiscovered || 0,
+        processedFiles: data.pagesScraped || 0,
+        skippedFiles: data.pagesSkipped || 0,
+        stage: 'Complete',
+        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
       }));
 
-      setScraperStatus(`Missing files scan complete: Found ${data.missingFiles} missing files, successfully processed ${data.pagesScraped} out of ${data.totalDiscovered} discovered files`);
+      const statusMessage = `Missing files scan complete: Found ${data.missingFiles || 0} missing files, successfully processed ${data.pagesScraped || 0} out of ${data.totalDiscovered || 0} discovered files`;
+      setScraperStatus(statusMessage);
       
       setScrapingDetails({
-        pagesProcessed: data.pagesScraped,
-        pagesSkipped: data.pagesSkipped,
-        stage: 'Complete'
+        pagesProcessed: data.pagesScraped || 0,
+        pagesSkipped: data.pagesSkipped || 0,
+        stage: 'Complete',
+        errors: data.rateLimitErrors > 0 ? [`${data.rateLimitErrors} files failed due to rate limiting`] : []
       });
       
       await loadWikiStats();
@@ -217,30 +289,38 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       
       toast({
         title: "Missing Files Scan Complete",
-        description: `Found and processed ${data.pagesScraped} missing files out of ${data.missingFiles} identified.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
+        description: `Found and processed ${data.pagesScraped || 0} missing files out of ${data.missingFiles || 0} identified.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
       });
     } catch (error) {
-      console.error('Missing files scan error:', error);
-      setScraperStatus('Error occurred during missing files scan: ' + error.message);
+      console.error('💥 Missing files scan error:', error);
+      const errorMessage = error.message || 'Unknown error occurred';
+      console.error('💥 Error details:', {
+        message: errorMessage,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      setScraperStatus('Error occurred during missing files scan: ' + errorMessage);
       setScrapingDetails({
         stage: 'Error',
-        errors: [error.message]
+        errors: [errorMessage]
       });
       
       // Update progress state with error
       setProgressState(prev => ({
         ...prev,
         isActive: false,
-        errors: [error.message],
+        errors: [errorMessage],
         stage: 'Error'
       }));
       
       toast({
         title: "Missing Files Scan Failed",
-        description: "There was an error scanning for missing files. This may be due to rate limiting - try again in a few minutes.",
+        description: `There was an error scanning for missing files: ${errorMessage}. Check the console for more details.`,
         variant: "destructive",
       });
     } finally {
+      console.log('🏁 Missing files scan process finished');
       setIsMissingLoading(false);
     }
   };
@@ -348,6 +428,30 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
           </div>
         )}
 
+        {/* Debug Information */}
+        {(isLoading || isIncrementalLoading || isMissingLoading || progressState.isActive) && (
+          <Card className="border-blue-200 bg-blue-50 mb-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-blue-900 flex items-center text-lg">
+                🔧 Debug Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-white border border-blue-200 p-3 rounded-lg">
+                <div className="text-sm text-blue-800 space-y-1">
+                  <div>• Loading States: Full={isLoading ? 'true' : 'false'}, Incremental={isIncrementalLoading ? 'true' : 'false'}, Missing={isMissingLoading ? 'true' : 'false'}</div>
+                  <div>• Progress Active: {progressState.isActive ? 'true' : 'false'}</div>
+                  <div>• Current Stage: {progressState.stage || 'None'}</div>
+                  <div>• Mode: {progressState.mode || 'None'}</div>
+                  <div>• Files: {progressState.processedFiles}/{progressState.totalFiles} (Skipped: {progressState.skippedFiles})</div>
+                  <div>• Errors: {progressState.errors.length}</div>
+                  <div className="text-xs text-blue-600 mt-2">Check browser console (F12) for detailed logs.</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Google Drive Scraping Section */}
         <Card className="border-slate-200 mb-6">
           <CardHeader>
@@ -429,6 +533,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <li>• Use <strong>Full Scrape</strong> for initial setup or after major changes</li>
                   <li>• If you see 403 errors, wait 5-10 minutes before trying again</li>
                   <li>• The scraper now has enhanced rate limiting with adaptive delays and better error recovery</li>
+                  <li>• Check the debug information above and browser console for detailed progress tracking</li>
                 </ul>
               </div>
 
