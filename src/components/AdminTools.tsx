@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw, Clock, Zap } from 'lucide-react';
+import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw, Clock, Zap, Search } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -23,6 +23,7 @@ interface ScrapingStatus {
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isIncrementalLoading, setIsIncrementalLoading] = useState(false);
+  const [isMissingLoading, setIsMissingLoading] = useState(false);
   const [scraperStatus, setScraperStatus] = useState('');
   const [scrapingDetails, setScrapingDetails] = useState<ScrapingStatus>({});
   const [wikiStats, setWikiStats] = useState({ totalPages: 0, lastUpdate: null });
@@ -114,6 +115,54 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       });
     } finally {
       setLoadingState(false);
+    }
+  };
+
+  const handleGetMissing = async () => {
+    setIsMissingLoading(true);
+    setScraperStatus('Starting missing files scan...');
+    setScrapingDetails({});
+    
+    try {
+      console.log('Starting missing files scan');
+      
+      const { data, error } = await supabase.functions.invoke('scrape-wiki', {
+        body: { getMissing: true }
+      });
+
+      console.log('Missing files scan response:', data, error);
+
+      if (error) throw error;
+
+      setScraperStatus(`Missing files scan complete: Found ${data.missingFiles} missing files, successfully processed ${data.pagesScraped} out of ${data.totalDiscovered} discovered files`);
+      
+      setScrapingDetails({
+        pagesProcessed: data.pagesScraped,
+        pagesSkipped: data.pagesSkipped,
+        stage: 'Complete'
+      });
+      
+      await loadWikiStats();
+      await loadWikiPages();
+      
+      toast({
+        title: "Missing Files Scan Complete",
+        description: `Found and processed ${data.pagesScraped} missing files out of ${data.missingFiles} identified.${data.rateLimitErrors > 0 ? ` Note: ${data.rateLimitErrors} files failed due to rate limiting.` : ''}`,
+      });
+    } catch (error) {
+      console.error('Missing files scan error:', error);
+      setScraperStatus('Error occurred during missing files scan: ' + error.message);
+      setScrapingDetails({
+        stage: 'Error',
+        errors: [error.message]
+      });
+      toast({
+        title: "Missing Files Scan Failed",
+        description: "There was an error scanning for missing files. This may be due to rate limiting - try again in a few minutes.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMissingLoading(false);
     }
   };
 
@@ -213,7 +262,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
             </CardTitle>
             <CardDescription>
               Automatically scan the configured Google Drive folder for .md files and update the knowledge base. 
-              Use incremental scan for recent changes only (last 7 days) to avoid rate limiting.
+              Use incremental scan for recent changes only (last 7 days) or missing files scan to get files that failed due to rate limiting.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -225,15 +274,16 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   <li>• Target Folder: Configured (via secrets)</li>
                   <li>• Scan Mode: Recursive (includes subfolders)</li>
                   <li>• File Types: .md (Markdown files only)</li>
-                  <li>• Rate Limiting: Enhanced with exponential backoff</li>
+                  <li>• Rate Limiting: Enhanced with exponential backoff and adaptive delays</li>
                   <li>• Incremental Mode: Available (scans last 7 days)</li>
+                  <li>• Missing Files Mode: Available (targets missing files only)</li>
                 </ul>
               </div>
               
               <div className="flex flex-wrap gap-3">
                 <Button 
                   onClick={() => handleScrapeGoogleDrive(false)}
-                  disabled={isLoading || isIncrementalLoading}
+                  disabled={isLoading || isIncrementalLoading || isMissingLoading}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   {isLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
@@ -242,11 +292,20 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 
                 <Button 
                   onClick={() => handleScrapeGoogleDrive(true)}
-                  disabled={isLoading || isIncrementalLoading}
+                  disabled={isLoading || isIncrementalLoading || isMissingLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
                   {isIncrementalLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Zap className="h-4 w-4 mr-2" />}
                   {isIncrementalLoading ? 'Quick Scraping...' : 'Quick Scrape (Recent)'}
+                </Button>
+
+                <Button 
+                  onClick={handleGetMissing}
+                  disabled={isLoading || isIncrementalLoading || isMissingLoading}
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  {isMissingLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
+                  {isMissingLoading ? 'Scanning Missing...' : 'Get Missing Files'}
                 </Button>
                 
                 <Button 
@@ -271,9 +330,10 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <h4 className="font-medium text-amber-900 mb-1">💡 Pro Tips</h4>
                 <ul className="text-sm text-amber-800 space-y-1">
                   <li>• Use <strong>Quick Scrape</strong> for daily updates - only scans files modified in the last 7 days</li>
+                  <li>• Use <strong>Get Missing Files</strong> to recover files that failed due to rate limiting</li>
                   <li>• Use <strong>Full Scrape</strong> for initial setup or after major changes</li>
                   <li>• If you see 403 errors, wait 5-10 minutes before trying again</li>
-                  <li>• The scraper now has enhanced rate limiting to avoid Google's automated query detection</li>
+                  <li>• The scraper now has enhanced rate limiting with adaptive delays and better error recovery</li>
                 </ul>
               </div>
 

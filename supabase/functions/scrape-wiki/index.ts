@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -13,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { incremental = false } = await req.json()
+    const { incremental = false, getMissing = false } = await req.json()
     
     // Get configuration from environment variables
     const googleApiKey = Deno.env.get('GDrive_APIKey')
@@ -32,8 +31,9 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
+    const mode = getMissing ? 'MISSING FILES SCAN' : (incremental ? 'INCREMENTAL (Recent changes only)' : 'FULL SCAN')
     console.log(`🚀 GOOGLE DRIVE SCRAPER STARTED: ${folderId}`)
-    console.log(`📊 MODE: ${incremental ? 'INCREMENTAL (Recent changes only)' : 'FULL SCAN'}`)
+    console.log(`📊 MODE: ${mode}`)
     console.log(`📊 CONFIGURATION:`)
     console.log(`   - Folder ID: ${folderId}`)
     console.log(`   - API Key: ${googleApiKey.substring(0, 10)}...`)
@@ -45,33 +45,41 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured')
     }
 
-    // Enhanced rate limiting with exponential backoff
-    let requestDelay = 1000 // Start with 1 second delay
-    const maxDelay = 10000 // Maximum 10 seconds
-    const delayMultiplier = 1.5
+    // Enhanced rate limiting with adaptive delays
+    let requestDelay = 800 // Start with 800ms delay (reduced from 1000ms)
+    const maxDelay = 15000 // Maximum 15 seconds (increased from 10s)
+    const delayMultiplier = 1.8 // Increased multiplier for faster backoff
     let consecutiveErrors = 0
+    let successfulRequests = 0
 
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-    // Function to make API calls with retry logic
+    // Function to make API calls with improved retry logic
     const makeApiCall = async (url: string, retries = 3): Promise<Response> => {
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           console.log(`🌐 API Call attempt ${attempt}/${retries}: ${url.replace(googleApiKey, 'API_KEY_HIDDEN')}`)
           
+          // Add random jitter to prevent synchronized requests
+          const jitter = Math.random() * 200
+          await sleep(requestDelay + jitter)
+          
           const response = await fetch(url)
           
           if (response.status === 403) {
             const errorText = await response.text()
-            if (errorText.includes('automated queries')) {
+            if (errorText.includes('automated queries') || errorText.includes('rate limit')) {
               console.log(`⚠️  Rate limit detected on attempt ${attempt}, increasing delay...`)
-              requestDelay = Math.min(requestDelay * delayMultiplier, maxDelay)
               consecutiveErrors++
               
+              // Exponential backoff with longer delays
+              const backoffDelay = Math.min(requestDelay * Math.pow(delayMultiplier, attempt), maxDelay)
+              requestDelay = backoffDelay
+              
               if (attempt < retries) {
-                const backoffDelay = requestDelay * (attempt * 2)
-                console.log(`⏰ Waiting ${backoffDelay}ms before retry...`)
-                await sleep(backoffDelay)
+                const waitTime = backoffDelay * (attempt + 1) + Math.random() * 2000
+                console.log(`⏰ Waiting ${waitTime}ms before retry...`)
+                await sleep(waitTime)
                 continue
               }
             }
@@ -82,11 +90,15 @@ serve(async (req) => {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`)
           }
           
-          // Success - reset error tracking
+          // Success - gradually reduce delay but keep it reasonable
           consecutiveErrors = 0
-          if (requestDelay > 1000) {
-            requestDelay = Math.max(1000, requestDelay / delayMultiplier)
-            console.log(`✅ Success! Reducing delay to ${requestDelay}ms`)
+          successfulRequests++
+          
+          // Only reduce delay after several successful requests
+          if (successfulRequests > 3 && requestDelay > 800) {
+            requestDelay = Math.max(800, requestDelay * 0.9)
+            console.log(`✅ Success streak! Reducing delay to ${requestDelay}ms`)
+            successfulRequests = 0 // Reset counter
           }
           
           return response
@@ -95,10 +107,37 @@ serve(async (req) => {
           if (attempt === retries) {
             throw error
           }
-          await sleep(2000 * attempt) // Progressive delay between retries
+          // Progressive delay between retries with jitter
+          const retryDelay = 3000 * attempt + Math.random() * 2000
+          await sleep(retryDelay)
         }
       }
       throw new Error('All retry attempts failed')
+    }
+
+    // Get existing files from database if we're doing a missing files scan
+    let existingFiles: Set<string> = new Set()
+    if (getMissing) {
+      console.log('🔍 Loading existing files from database...')
+      const { data: existing, error } = await supabase
+        .from('wiki_content')
+        .select('url')
+      
+      if (error) {
+        console.error('Error loading existing files:', error)
+        throw error
+      }
+      
+      existingFiles = new Set(existing?.map(item => {
+        // Extract file ID from various URL formats
+        if (item.url.startsWith('gdrive://')) {
+          return item.url.replace('gdrive://', '')
+        }
+        const match = item.url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/)
+        return match ? match[1] : item.url
+      }) || [])
+      
+      console.log(`📋 Found ${existingFiles.size} existing files in database`)
     }
 
     // Get cutoff time for incremental scraping (last 7 days)
@@ -112,7 +151,6 @@ serve(async (req) => {
       const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime)&pageSize=100`
       
       try {
-        await sleep(requestDelay) // Rate limiting
         const response = await makeApiCall(url)
         
         const data = await response.json()
@@ -134,6 +172,12 @@ serve(async (req) => {
             const subfolderFiles = await getAllMarkdownFiles(file.id, currentPath)
             allFiles.push(...subfolderFiles)
           } else if (file.name.endsWith('.md')) {
+            // For missing files scan, check if file already exists
+            if (getMissing && existingFiles.has(file.id)) {
+              console.log(`⏭️  Skipping existing file: ${currentPath}`)
+              continue
+            }
+            
             // Check if file should be included in incremental scan
             if (incremental && incrementalCutoff && file.modifiedTime) {
               if (file.modifiedTime < incrementalCutoff) {
@@ -142,7 +186,8 @@ serve(async (req) => {
               }
             }
             
-            console.log(`📄 Found markdown file: ${currentPath} ${incremental ? `(modified: ${file.modifiedTime})` : ''}`)
+            const scanType = getMissing ? '(missing)' : (incremental ? `(modified: ${file.modifiedTime})` : '')
+            console.log(`📄 Found markdown file: ${currentPath} ${scanType}`)
             allFiles.push({
               id: file.id,
               name: file.name,
@@ -169,7 +214,6 @@ serve(async (req) => {
       const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${googleApiKey}`
       
       try {
-        await sleep(requestDelay) // Rate limiting
         const response = await makeApiCall(url)
         
         const content = await response.text()
@@ -244,18 +288,27 @@ serve(async (req) => {
     console.log(`\n🌐 STARTING GOOGLE DRIVE DISCOVERY`)
     const markdownFiles = await getAllMarkdownFiles(folderId)
     
+    const missingFiles = getMissing ? markdownFiles.length : 0
+    
     console.log(`\n📊 DISCOVERY SUMMARY:`)
+    console.log(`   - Mode: ${mode}`)
     console.log(`   - Total .md files found: ${markdownFiles.length}`)
+    if (getMissing) {
+      console.log(`   - Missing files to process: ${missingFiles}`)
+    }
 
     if (markdownFiles.length === 0) {
+      const message = getMissing ? 'No missing files found - all files are up to date!' : 'No markdown files found in the specified folder or timeframe.'
       return new Response(
         JSON.stringify({ 
           success: true, 
           pagesScraped: 0,
           pagesSkipped: 0,
           totalDiscovered: 0,
+          missingFiles: 0,
           incremental,
-          message: 'No markdown files found in the specified folder or timeframe.' 
+          getMissing,
+          message 
         }),
         { 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -296,17 +349,19 @@ serve(async (req) => {
 
       const contentHash = await generateHash(content)
       
-      // Check if content exists and is unchanged
-      const { data: existing } = await supabase
-        .from('wiki_content')
-        .select('id, content_hash')
-        .eq('url', file.webViewLink || `gdrive://${file.id}`)
-        .single()
+      // Check if content exists and is unchanged (unless we're specifically looking for missing files)
+      if (!getMissing) {
+        const { data: existing } = await supabase
+          .from('wiki_content')
+          .select('id, content_hash')
+          .eq('url', file.webViewLink || `gdrive://${file.id}`)
+          .single()
 
-      if (existing && existing.content_hash === contentHash) {
-        console.log(`⏭️  UNCHANGED: Content identical`)
-        pagesSkipped++
-        continue
+        if (existing && existing.content_hash === contentHash) {
+          console.log(`⏭️  UNCHANGED: Content identical`)
+          pagesSkipped++
+          continue
+        }
       }
 
       // Generate embedding
@@ -341,17 +396,24 @@ serve(async (req) => {
       processedFiles.push(file.path)
       console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars)`)
       
-      // Adaptive rate limiting based on success
-      await sleep(requestDelay)
+      // Brief pause between successful operations
+      await sleep(100)
     }
 
     console.log(`\n🏁 GOOGLE DRIVE SCRAPING COMPLETE!`)
     console.log(`   📊 FINAL STATISTICS:`)
-    console.log(`   - Mode: ${incremental ? 'INCREMENTAL' : 'FULL'}`)
+    console.log(`   - Mode: ${mode}`)
     console.log(`   - Files discovered: ${markdownFiles.length}`)
     console.log(`   - Files successfully scraped: ${pagesScraped}`)
     console.log(`   - Files skipped: ${pagesSkipped}`)
     console.log(`   - Rate limit errors: ${rateLimitErrors}`)
+    if (getMissing) {
+      console.log(`   - Missing files found: ${missingFiles}`)
+    }
+
+    const message = getMissing 
+      ? `Missing files scan complete: Found ${missingFiles} missing files, processed ${pagesScraped} successfully`
+      : `Google Drive scraping complete: Found ${markdownFiles.length} .md files, scraped ${pagesScraped} files${incremental ? ' (incremental mode)' : ''}`
 
     return new Response(
       JSON.stringify({ 
@@ -359,10 +421,12 @@ serve(async (req) => {
         pagesScraped,
         pagesSkipped,
         totalDiscovered: markdownFiles.length,
+        missingFiles: getMissing ? missingFiles : undefined,
         rateLimitErrors,
         incremental,
+        getMissing,
         processedFiles: processedFiles.slice(0, 50),
-        message: `Google Drive scraping complete: Found ${markdownFiles.length} .md files, scraped ${pagesScraped} files${incremental ? ' (incremental mode)' : ''}` 
+        message 
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
