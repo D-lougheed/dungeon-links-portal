@@ -57,12 +57,45 @@ serve(async (req) => {
           url,
           title,
           content: cleanHtml.substring(0, 8000), // Limit content length
-          contentHash: await generateHash(cleanHtml)
+          contentHash: await generateHash(cleanHtml),
+          rawHtml: html
         }
       } catch (error) {
         console.error(`Error scraping ${url}:`, error)
         return null
       }
+    }
+
+    // Function to extract links from HTML
+    const extractLinks = (html: string, baseUrl: string) => {
+      const links = new Set<string>()
+      const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi
+      let match
+
+      while ((match = linkRegex.exec(html)) !== null) {
+        let href = match[1]
+        
+        // Skip external links, anchors, and non-wiki content
+        if (href.startsWith('http') && !href.includes(baseUrl)) continue
+        if (href.startsWith('#')) continue
+        if (href.startsWith('mailto:')) continue
+        if (href.includes('edit') || href.includes('action=')) continue
+        
+        // Handle relative URLs
+        if (href.startsWith('/')) {
+          href = baseUrl + href
+        } else if (!href.startsWith('http')) {
+          href = baseUrl + '/' + href
+        }
+        
+        // Clean up the URL
+        href = href.split('#')[0] // Remove anchors
+        href = href.split('?')[0] // Remove query parameters
+        
+        links.add(href)
+      }
+      
+      return Array.from(links)
     }
 
     // Function to generate content hash
@@ -101,76 +134,107 @@ serve(async (req) => {
       }
     }
 
-    // Start with some common wiki pages
-    const pagesToScrape = [
+    // Start with the base URL and some common entry points
+    const discoveredUrls = new Set([baseUrl])
+    const processedUrls = new Set<string>()
+    const maxPages = 100 // Increased limit for better discovery
+    let pagesScraped = 0
+
+    // Initial seed URLs to start discovery
+    const seedUrls = [
       `${baseUrl}`,
+      `${baseUrl}/Published`,
       `${baseUrl}/Home`,
-      `${baseUrl}/Getting-Started`,
-      `${baseUrl}/Documentation`,
-      `${baseUrl}/API`,
-      `${baseUrl}/Guide`,
-      `${baseUrl}/Tutorial`,
+      `${baseUrl}/index`,
+      `${baseUrl}/Main_Page`,
     ]
 
-    let pagesScraped = 0
-    const maxPages = 50 // Limit to prevent excessive scraping
+    seedUrls.forEach(url => discoveredUrls.add(url))
 
-    for (const url of pagesToScrape.slice(0, maxPages)) {
-      console.log(`Scraping: ${url}`)
-      
-      const pageData = await scrapePage(url)
-      if (!pageData) continue
+    // Process URLs in batches to discover more links
+    while (discoveredUrls.size > 0 && pagesScraped < maxPages) {
+      const urlsToProcess = Array.from(discoveredUrls).slice(0, 10) // Process 10 at a time
+      urlsToProcess.forEach(url => {
+        discoveredUrls.delete(url)
+        processedUrls.add(url)
+      })
 
-      // Check if this content already exists (by hash)
-      const { data: existing } = await supabase
-        .from('wiki_content')
-        .select('id')
-        .eq('content_hash', pageData.contentHash)
-        .single()
+      for (const url of urlsToProcess) {
+        if (pagesScraped >= maxPages) break
+        
+        console.log(`Scraping: ${url}`)
+        
+        const pageData = await scrapePage(url)
+        if (!pageData) continue
 
-      if (existing) {
-        console.log(`Skipping ${url} - content already exists`)
-        continue
+        // Extract links from this page for future discovery
+        if (discoveredUrls.size < maxPages) {
+          const newLinks = extractLinks(pageData.rawHtml, baseUrl)
+          newLinks.forEach(link => {
+            if (!processedUrls.has(link) && !discoveredUrls.has(link)) {
+              discoveredUrls.add(link)
+            }
+          })
+        }
+
+        // Check if this content already exists (by hash)
+        const { data: existing } = await supabase
+          .from('wiki_content')
+          .select('id')
+          .eq('content_hash', pageData.contentHash)
+          .single()
+
+        if (existing) {
+          console.log(`Skipping ${url} - content already exists`)
+          continue
+        }
+
+        // Skip pages with very little content (likely navigation pages)
+        if (pageData.content.length < 200) {
+          console.log(`Skipping ${url} - content too short`)
+          continue
+        }
+
+        // Generate embedding for the content
+        const embedding = await generateEmbedding(pageData.content)
+        if (!embedding) {
+          console.log(`Skipping ${url} - failed to generate embedding`)
+          continue
+        }
+
+        // Insert or update the content
+        const { error } = await supabase
+          .from('wiki_content')
+          .upsert({
+            url: pageData.url,
+            title: pageData.title,
+            content: pageData.content,
+            content_hash: pageData.contentHash,
+            embedding: embedding,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'url'
+          })
+
+        if (error) {
+          console.error(`Error saving ${url}:`, error)
+          continue
+        }
+
+        pagesScraped++
+        console.log(`Successfully processed: ${url}`)
+
+        // Add a small delay to be respectful to the server
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
-
-      // Generate embedding for the content
-      const embedding = await generateEmbedding(pageData.content)
-      if (!embedding) {
-        console.log(`Skipping ${url} - failed to generate embedding`)
-        continue
-      }
-
-      // Insert or update the content
-      const { error } = await supabase
-        .from('wiki_content')
-        .upsert({
-          url: pageData.url,
-          title: pageData.title,
-          content: pageData.content,
-          content_hash: pageData.contentHash,
-          embedding: embedding,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'url'
-        })
-
-      if (error) {
-        console.error(`Error saving ${url}:`, error)
-        continue
-      }
-
-      pagesScraped++
-      console.log(`Successfully processed: ${url}`)
-
-      // Add a small delay to be respectful to the server
-      await new Promise(resolve => setTimeout(resolve, 1000))
     }
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         pagesScraped,
-        message: `Successfully scraped and processed ${pagesScraped} pages` 
+        totalDiscovered: processedUrls.size,
+        message: `Successfully scraped and processed ${pagesScraped} pages from ${processedUrls.size} discovered URLs` 
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
