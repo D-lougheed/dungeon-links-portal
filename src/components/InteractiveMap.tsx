@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
-import { Icon, divIcon } from 'leaflet';
+import L, { Icon, divIcon } from 'leaflet';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -246,7 +246,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <Card className="h-[600px]">
               <CardContent className="p-0 h-full">
                 <MapContainer
-                  center={[0, 0]}
+                  center={[0, 0] as [number, number]}
                   zoom={2}
                   className="h-full w-full rounded-lg"
                   crs={L.CRS.Simple}
@@ -255,14 +255,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 >
                   <TileLayer
                     url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
-                    attribution="D&D Campaign Map"
                   />
                   <MapClickHandler onMapClick={handleMapClick} isDM={isDM} />
                   
                   {locations.map((location) => (
                     <Marker
                       key={location.id}
-                      position={[location.y_coordinate, location.x_coordinate]}
+                      position={[location.y_coordinate, location.x_coordinate] as [number, number]}
                       icon={createCustomIcon(location.location_type)}
                     >
                       <Popup>
