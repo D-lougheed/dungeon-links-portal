@@ -47,12 +47,16 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [showLayerPanel, setShowLayerPanel] = useState(true);
   const [showControlPanel, setShowControlPanel] = useState(true);
   
-  // Zoom and pan state
+  // Enhanced zoom and pan state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const mapRef = useRef<HTMLDivElement>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
 
   const form = useForm<z.infer<typeof markerSchema>>({
     resolver: zodResolver(markerSchema),
@@ -65,6 +69,18 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   useEffect(() => {
     fetchMarkers();
   }, []);
+
+  // Handle image load to get natural dimensions
+  const handleImageLoad = () => {
+    if (imageRef.current) {
+      setImageDimensions({
+        width: imageRef.current.naturalWidth,
+        height: imageRef.current.naturalHeight
+      });
+      setImageLoaded(true);
+      console.log('Image loaded with dimensions:', imageRef.current.naturalWidth, 'x', imageRef.current.naturalHeight);
+    }
+  };
 
   const fetchMarkers = async () => {
     try {
@@ -81,16 +97,51 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
+  const getImageDimensions = () => {
+    if (!mapContainerRef.current || !imageLoaded) return { width: 1920, height: 1080 };
+    
+    const container = mapContainerRef.current;
+    const containerAspect = container.clientWidth / container.clientHeight;
+    const imageAspect = imageDimensions.width / imageDimensions.height;
+    
+    let displayWidth, displayHeight;
+    
+    if (containerAspect > imageAspect) {
+      // Container is wider than image aspect ratio
+      displayHeight = container.clientHeight;
+      displayWidth = displayHeight * imageAspect;
+    } else {
+      // Container is taller than image aspect ratio
+      displayWidth = container.clientWidth;
+      displayHeight = displayWidth / imageAspect;
+    }
+    
+    return { width: displayWidth, height: displayHeight };
+  };
+
   const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!isAddingMarker || userRole !== 'dm' || isDragging) return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left - pan.x) / zoom / rect.width) * 100;
-    const y = ((event.clientY - rect.top - pan.y) / zoom / rect.height) * 100;
+    const { width, height } = getImageDimensions();
+    const rect = mapContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    // Calculate the image position within the container
+    const containerCenterX = rect.width / 2;
+    const containerCenterY = rect.height / 2;
+    const imageCenterX = containerCenterX + pan.x;
+    const imageCenterY = containerCenterY + pan.y;
+    
+    // Calculate click position relative to image
+    const imageLeft = imageCenterX - (width * zoom) / 2;
+    const imageTop = imageCenterY - (height * zoom) / 2;
+    
+    const relativeX = (event.clientX - rect.left - imageLeft) / (width * zoom);
+    const relativeY = (event.clientY - rect.top - imageTop) / (height * zoom);
 
     // Clamp values to ensure they're within bounds
-    const clampedX = Math.max(0, Math.min(100, x));
-    const clampedY = Math.max(0, Math.min(100, y));
+    const clampedX = Math.max(0, Math.min(1, relativeX)) * 100;
+    const clampedY = Math.max(0, Math.min(1, relativeY)) * 100;
 
     setPendingPosition({ x: clampedX, y: clampedY });
     setIsDialogOpen(true);
@@ -99,9 +150,23 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const handleWheel = (event: React.WheelEvent) => {
     event.preventDefault();
-    const delta = event.deltaY > 0 ? -0.1 : 0.1;
-    const newZoom = Math.max(0.5, Math.min(5, zoom + delta));
+    
+    const rect = mapContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+    
+    const delta = event.deltaY > 0 ? -0.2 : 0.2;
+    const newZoom = Math.max(0.1, Math.min(10, zoom + delta));
+    
+    // Calculate zoom center point to zoom towards mouse position
+    const zoomFactor = newZoom / zoom;
+    const newPanX = mouseX - (mouseX - pan.x) * zoomFactor;
+    const newPanY = mouseY - (mouseY - pan.y) * zoomFactor;
+    
     setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
   };
 
   const handleMouseDown = (event: React.MouseEvent) => {
@@ -112,10 +177,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const handleMouseMove = (event: React.MouseEvent) => {
     if (!isDragging || isAddingMarker) return;
-    setPan({
+    
+    const newPan = {
       x: event.clientX - dragStart.x,
       y: event.clientY - dragStart.y,
-    });
+    };
+    
+    setPan(newPan);
   };
 
   const handleMouseUp = () => {
@@ -123,11 +191,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   const handleZoomIn = () => {
-    setZoom(Math.min(5, zoom + 0.2));
+    const newZoom = Math.min(10, zoom * 1.5);
+    setZoom(newZoom);
   };
 
   const handleZoomOut = () => {
-    setZoom(Math.max(0.5, zoom - 0.2));
+    const newZoom = Math.max(0.1, zoom / 1.5);
+    setZoom(newZoom);
   };
 
   const handleResetView = () => {
@@ -213,13 +283,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   const filteredMarkers = markers.filter(marker => visibleLayers.has(marker.layer));
+  const { width: imageDisplayWidth, height: imageDisplayHeight } = getImageDimensions();
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
-      {/* Full Screen Map */}
+      {/* Full Screen Map Container */}
       <div
-        ref={mapRef}
-        className="absolute inset-0 w-full h-full"
+        ref={mapContainerRef}
+        className="absolute inset-0 w-full h-full overflow-hidden"
         style={{
           cursor: isAddingMarker ? 'crosshair' : isDragging ? 'grabbing' : 'grab',
         }}
@@ -230,82 +301,101 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         onMouseLeave={handleMouseUp}
         onClick={handleMapClick}
       >
+        {/* High-resolution map image */}
         <div
-          className="absolute inset-0 transition-transform duration-100"
+          className="absolute inset-0 flex items-center justify-center"
           style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            transformOrigin: '0 0',
-            backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
-            backgroundSize: 'contain',
-            backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'center',
-            width: '100vw',
-            height: '100vh',
-            imageRendering: 'auto',
-            filter: 'none',
-            backfaceVisibility: 'hidden',
-            willChange: 'transform',
+            transform: `translate(${pan.x}px, ${pan.y}px)`,
+            transformOrigin: 'center center',
           }}
         >
-          {/* Markers */}
-          {filteredMarkers.map((marker) => (
-            <div
-              key={marker.id}
-              className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
-              style={{
-                left: `${marker.x}%`,
-                top: `${marker.y}%`,
-              }}
-            >
-              <div
-                className={`w-4 h-4 rounded-full cursor-pointer transition-all duration-200 border-2 border-white shadow-lg hover:scale-150 ${
-                  marker.layer === 'Political' ? 'bg-red-500' :
-                  marker.layer === 'Geographic' ? 'bg-green-500' :
-                  marker.layer === 'Cities' ? 'bg-blue-500' :
-                  marker.layer === 'Dungeons' ? 'bg-purple-500' :
-                  'bg-yellow-500'
-                }`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedMarker(marker);
-                }}
-              />
-              
-              {/* Marker tooltip */}
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                {marker.name} ({marker.layer})
-              </div>
-              
-              {/* Edit/Delete buttons for DM */}
-              {userRole === 'dm' && (
-                <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 w-6 p-0 bg-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEditMarker(marker);
-                    }}
-                  >
-                    <Edit className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 w-6 p-0 text-red-600 hover:text-red-700 bg-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteMarker(marker.id);
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
+          <img
+            ref={imageRef}
+            src="/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png"
+            alt="Campaign Map"
+            className="max-w-none select-none"
+            style={{
+              width: `${imageDisplayWidth * zoom}px`,
+              height: `${imageDisplayHeight * zoom}px`,
+              imageRendering: zoom > 2 ? 'pixelated' : 'auto',
+              filter: 'contrast(1.1) saturate(1.1)',
+            }}
+            onLoad={handleImageLoad}
+            draggable={false}
+          />
         </div>
+
+        {/* Markers overlay */}
+        {imageLoaded && (
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: '50%',
+              top: '50%',
+              width: `${imageDisplayWidth * zoom}px`,
+              height: `${imageDisplayHeight * zoom}px`,
+              transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`,
+            }}
+          >
+            {filteredMarkers.map((marker) => (
+              <div
+                key={marker.id}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 group pointer-events-auto"
+                style={{
+                  left: `${marker.x}%`,
+                  top: `${marker.y}%`,
+                }}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full cursor-pointer transition-all duration-200 border-2 border-white shadow-lg hover:scale-150 ${
+                    marker.layer === 'Political' ? 'bg-red-500' :
+                    marker.layer === 'Geographic' ? 'bg-green-500' :
+                    marker.layer === 'Cities' ? 'bg-blue-500' :
+                    marker.layer === 'Dungeons' ? 'bg-purple-500' :
+                    'bg-yellow-500'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedMarker(marker);
+                  }}
+                />
+                
+                {/* Marker tooltip */}
+                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                  {marker.name} ({marker.layer})
+                </div>
+                
+                {/* Edit/Delete buttons for DM */}
+                {userRole === 'dm' && (
+                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 w-6 p-0 bg-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditMarker(marker);
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 w-6 p-0 text-red-600 hover:text-red-700 bg-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteMarker(marker.id);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Floating Header Bar */}
@@ -413,7 +503,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         </Card>
       )}
 
-      {/* Floating Zoom Controls Panel */}
+      {/* Enhanced Zoom Controls Panel */}
       {showControlPanel && (
         <Card className="absolute top-20 right-4 z-20 w-64 bg-white/95 backdrop-blur-sm border-amber-200 shadow-xl">
           <CardHeader className="pb-3">
@@ -464,7 +554,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             </div>
             <div className="mt-4 text-xs text-amber-700 space-y-1">
               <div>Zoom: {Math.round(zoom * 100)}%</div>
-              <div className="text-amber-600">Use mouse wheel to zoom, drag to pan</div>
+              <div>Max Zoom: 1000%</div>
+              <div className="text-amber-600">Mouse wheel: zoom | Drag: pan</div>
+              {imageDimensions.width > 0 && (
+                <div className="text-amber-600">
+                  Image: {imageDimensions.width}×{imageDimensions.height}px
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
