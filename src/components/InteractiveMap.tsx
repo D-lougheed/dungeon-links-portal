@@ -166,7 +166,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               Back to Dashboard
             </Button>
             <div>
-              <h1 className="text-2xl font-bold">Interactive World Map (Leaflet)</h1>
+              <h1 className="text-2xl font-bold">Interactive World Map</h1>
               <p className="text-amber-100 text-sm">
                 Explore the world of your campaign
               </p>

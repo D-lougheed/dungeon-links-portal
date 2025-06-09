@@ -320,7 +320,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
       const fileName = `map-${Date.now()}.${fileExt}`;
       const filePath = `map-images/${fileName}`;
 
-      await uploadFile(mapImageFile, 'map-images', filePath);
+      await uploadFile(mapImageFile, 'map-images', fileName);
 
       if (mapSettings) {
         const { error } = await supabase
@@ -373,7 +373,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
       const fileName = `icon-${Date.now()}.${fileExt}`;
       const filePath = `map-icons/${fileName}`;
 
-      await uploadFile(iconImageFile, 'map-icons', filePath);
+      await uploadFile(iconImageFile, 'map-icons', fileName);
 
       const { error } = await supabase
         .from('map_icons')
