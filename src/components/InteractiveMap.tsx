@@ -1,5 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
+import { Icon, LatLng } from 'leaflet';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,13 +10,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft, Plus, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, Eye, EyeOff, ZoomIn, ZoomOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'sonner';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for default markers in React Leaflet
+delete (Icon.Default.prototype as any)._getIconUrl;
+Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 interface MapMarker {
   id: string;
@@ -36,13 +47,95 @@ const markerSchema = z.object({
 
 const layers = ['Political', 'Geographic', 'Cities', 'Dungeons', 'Points of Interest'];
 
+// Custom marker colors for different layers
+const getMarkerIcon = (layer: string) => {
+  const colors = {
+    'Political': '#ef4444',
+    'Geographic': '#22c55e',
+    'Cities': '#3b82f6',
+    'Dungeons': '#a855f7',
+    'Points of Interest': '#eab308'
+  };
+  
+  const color = colors[layer as keyof typeof colors] || '#6b7280';
+  
+  return new Icon({
+    iconUrl: `data:image/svg+xml;base64,${btoa(`
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+        <path fill="${color}" stroke="#ffffff" stroke-width="2" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+      </svg>
+    `)}`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+    popupAnchor: [0, -24],
+  });
+};
+
+// Component for handling map clicks
+const MapClickHandler: React.FC<{
+  isAddingMarker: boolean;
+  onMapClick: (latlng: LatLng) => void;
+}> = ({ isAddingMarker, onMapClick }) => {
+  useMapEvents({
+    click: (e) => {
+      if (isAddingMarker) {
+        onMapClick(e.latlng);
+      }
+    },
+  });
+  return null;
+};
+
+// Component for zoom controls
+const ZoomControls: React.FC = () => {
+  const map = useMap();
+  
+  return (
+    <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2">
+      <Button
+        size="sm"
+        variant="outline"
+        className="bg-white shadow-lg"
+        onClick={() => map.zoomIn()}
+      >
+        <ZoomIn className="h-4 w-4" />
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        className="bg-white shadow-lg"
+        onClick={() => map.zoomOut()}
+      >
+        <ZoomOut className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+};
+
+// Calculate distance between two points (in meters)
+const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lng2 - lng1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c;
+};
+
 const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const { userRole } = useAuth();
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const [visibleLayers, setVisibleLayers] = useState<Set<string>>(new Set(layers));
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
+  const [selectedMarkers, setSelectedMarkers] = useState<MapMarker[]>([]);
   const [isAddingMarker, setIsAddingMarker] = useState(false);
-  const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
+  const [pendingPosition, setPendingPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMarker, setEditingMarker] = useState<MapMarker | null>(null);
 
@@ -53,6 +146,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       layer: layers[0],
     },
   });
+
+  // Map bounds (you can adjust these based on your world map)
+  const mapBounds: [[number, number], [number, number]] = [[-85, -180], [85, 180]];
 
   useEffect(() => {
     fetchMarkers();
@@ -73,14 +169,24 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  // Convert percentage coordinates to lat/lng
+  const percentToLatLng = (x: number, y: number): [number, number] => {
+    const lat = 85 - (y / 100) * 170; // Map y percentage to latitude range
+    const lng = -180 + (x / 100) * 360; // Map x percentage to longitude range
+    return [lat, lng];
+  };
+
+  // Convert lat/lng to percentage coordinates
+  const latLngToPercent = (lat: number, lng: number): { x: number; y: number } => {
+    const x = ((lng + 180) / 360) * 100;
+    const y = ((85 - lat) / 170) * 100;
+    return { x, y };
+  };
+
+  const handleMapClick = (latlng: LatLng) => {
     if (!isAddingMarker || userRole !== 'dm') return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-
-    setPendingPosition({ x, y });
+    setPendingPosition({ lat: latlng.lat, lng: latlng.lng });
     setIsDialogOpen(true);
     setIsAddingMarker(false);
   };
@@ -102,13 +208,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         if (error) throw error;
         toast.success('Marker updated successfully');
       } else if (pendingPosition) {
-        // Create new marker
+        // Create new marker - convert lat/lng back to percentage for storage
+        const { x, y } = latLngToPercent(pendingPosition.lat, pendingPosition.lng);
         const { error } = await supabase
           .from('map_markers')
           .insert({
             name: values.name,
-            x: pendingPosition.x,
-            y: pendingPosition.y,
+            x,
+            y,
             layer: values.layer,
           });
 
@@ -162,7 +269,36 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     setVisibleLayers(newVisibleLayers);
   };
 
+  const toggleMarkerSelection = (marker: MapMarker) => {
+    setSelectedMarkers(prev => {
+      const isSelected = prev.some(m => m.id === marker.id);
+      if (isSelected) {
+        return prev.filter(m => m.id !== marker.id);
+      } else {
+        return [...prev, marker];
+      }
+    });
+  };
+
   const filteredMarkers = markers.filter(marker => visibleLayers.has(marker.layer));
+
+  // Calculate distance between selected markers
+  const getDistanceBetweenSelected = (): string | null => {
+    if (selectedMarkers.length !== 2) return null;
+    
+    const [marker1, marker2] = selectedMarkers;
+    const [lat1, lng1] = percentToLatLng(marker1.x, marker1.y);
+    const [lat2, lng2] = percentToLatLng(marker2.x, marker2.y);
+    
+    const distance = calculateDistance(lat1, lng1, lat2, lng2);
+    
+    // Convert to appropriate units (assuming 1 meter = 1 mile for fantasy scale)
+    if (distance < 1000) {
+      return `${Math.round(distance)} meters`;
+    } else {
+      return `${(distance / 1000).toFixed(1)} km`;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 relative overflow-hidden">
@@ -234,6 +370,26 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 <p className="text-sm text-amber-700">
                   Visible: {filteredMarkers.length}
                 </p>
+                {selectedMarkers.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-amber-200">
+                    <p className="text-sm text-amber-700">
+                      Selected: {selectedMarkers.length}
+                    </p>
+                    {selectedMarkers.length === 2 && (
+                      <p className="text-sm text-green-700 font-medium">
+                        Distance: {getDistanceBetweenSelected()}
+                      </p>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-1 text-xs"
+                      onClick={() => setSelectedMarkers([])}
+                    >
+                      Clear Selection
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -252,72 +408,76 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div
-                  className="relative w-full h-96 bg-amber-50 border-2 border-amber-300 rounded-lg overflow-hidden cursor-crosshair"
-                  onClick={handleMapClick}
-                  style={{
-                    backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }}
-                >
-                  {filteredMarkers.map((marker) => (
-                    <div
-                      key={marker.id}
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
-                      style={{
-                        left: `${marker.x}%`,
-                        top: `${marker.y}%`,
-                      }}
-                    >
-                      <div
-                        className={`w-4 h-4 rounded-full cursor-pointer transition-all duration-200 border-2 border-white shadow-lg hover:scale-150 ${
-                          marker.layer === 'Political' ? 'bg-red-500' :
-                          marker.layer === 'Geographic' ? 'bg-green-500' :
-                          marker.layer === 'Cities' ? 'bg-blue-500' :
-                          marker.layer === 'Dungeons' ? 'bg-purple-500' :
-                          'bg-yellow-500'
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMarker(marker);
-                        }}
-                      />
+                <div className="relative w-full h-96 bg-amber-50 border-2 border-amber-300 rounded-lg overflow-hidden">
+                  <MapContainer
+                    center={[0, 0]}
+                    zoom={2}
+                    style={{ height: '100%', width: '100%' }}
+                    maxBounds={mapBounds}
+                    maxBoundsViscosity={1.0}
+                    crs={L.CRS.Simple}
+                  >
+                    <TileLayer
+                      url="/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png"
+                      attribution="Campaign Map"
+                      noWrap={true}
+                    />
+                    
+                    <MapClickHandler 
+                      isAddingMarker={isAddingMarker} 
+                      onMapClick={handleMapClick} 
+                    />
+                    
+                    <ZoomControls />
+
+                    {filteredMarkers.map((marker) => {
+                      const [lat, lng] = percentToLatLng(marker.x, marker.y);
+                      const isSelected = selectedMarkers.some(m => m.id === marker.id);
                       
-                      {/* Marker tooltip */}
-                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                        {marker.name} ({marker.layer})
-                      </div>
-                      
-                      {/* Edit/Delete buttons for DM */}
-                      {userRole === 'dm' && (
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 w-6 p-0"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditMarker(marker);
-                            }}
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteMarker(marker.id);
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                      return (
+                        <Marker
+                          key={marker.id}
+                          position={[lat, lng]}
+                          icon={getMarkerIcon(marker.layer)}
+                          eventHandlers={{
+                            click: () => {
+                              setSelectedMarker(marker);
+                              toggleMarkerSelection(marker);
+                            },
+                          }}
+                        >
+                          <Popup>
+                            <div className="p-2">
+                              <h3 className="font-bold text-amber-900">{marker.name}</h3>
+                              <p className="text-sm text-amber-700">Layer: {marker.layer}</p>
+                              <p className="text-xs text-amber-600">
+                                Position: {marker.x.toFixed(1)}%, {marker.y.toFixed(1)}%
+                              </p>
+                              {userRole === 'dm' && (
+                                <div className="flex gap-2 mt-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleEditMarker(marker)}
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-600 hover:text-red-700"
+                                    onClick={() => handleDeleteMarker(marker.id)}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </Popup>
+                        </Marker>
+                      );
+                    })}
+                  </MapContainer>
                 </div>
               </CardContent>
             </Card>
