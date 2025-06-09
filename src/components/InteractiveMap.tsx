@@ -128,7 +128,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         const imageUrl = '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png';
         const img = new Image();
         
-        img.onload = () => {
+        const handleImageLoad = () => {
           console.log('Image loaded successfully, adding to map...');
           
           // Add image overlay
@@ -155,6 +155,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           console.log('Map initialization completed successfully');
         };
 
+        img.onload = handleImageLoad;
+
         img.onerror = () => {
           throw new Error('Failed to load map image');
         };
@@ -164,9 +166,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           throw new Error('Map image loading timed out');
         }, 15000);
 
-        img.onload = () => {
+        img.onload = (event) => {
           clearTimeout(loadTimeout);
-          img.onload(); // Call the original onload
+          handleImageLoad();
         };
 
         img.src = imageUrl;
