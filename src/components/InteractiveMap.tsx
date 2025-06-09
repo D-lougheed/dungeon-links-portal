@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, ImageOverlay, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -31,6 +31,8 @@ interface MapLocation {
   location_type: string;
   icon_id: string | null;
   zoom_level: number | null;
+  lat?: number;
+  lng?: number;
   icon?: {
     name: string;
     icon_url: string;
@@ -103,7 +105,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         throw locationsError;
       }
 
-      setLocations(locationsData || []);
+      // Convert percentage coordinates to lat/lng
+      const convertedLocations = (locationsData || []).map(location => ({
+        ...location,
+        lat: (50 - location.y_coordinate) * 1.8,
+        lng: (location.x_coordinate - 50) * 3.6
+      }));
+
+      setLocations(convertedLocations);
     } catch (error) {
       console.error('Error loading map data:', error);
       toast({
@@ -119,7 +128,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const createCustomIcon = (icon: any) => {
     const iconUrl = getImageUrl(icon.icon_file_path, icon.icon_url);
     return L.icon({
-      iconUrl: iconUrl,
+      iconUrl: iconUrl || '',
       iconSize: [icon.icon_size_width, icon.icon_size_height],
       iconAnchor: [icon.icon_size_width / 2, icon.icon_size_height],
       popupAnchor: [0, -icon.icon_size_height],
@@ -137,12 +146,55 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const currentMapImageUrl = getImageUrl(mapSettings?.map_image_path, mapSettings?.map_image_url);
   const mapBounds = L.latLngBounds([[-85, -180], [85, 180]]);
 
-  // Convert percentage coordinates to lat/lng
-  const convertedLocations = locations.map(location => ({
-    ...location,
-    lat: (50 - location.y_coordinate) * 1.8,
-    lng: (location.x_coordinate - 50) * 3.6
-  }));
+  const renderMap = () => {
+    return (
+      <MapContainer
+        center={[0, 0]}
+        zoom={mapSettings?.default_zoom || 2}
+        style={{ height: '100%', width: '100%' }}
+        maxBounds={mapBounds}
+        maxBoundsViscosity={1.0}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        />
+        
+        {currentMapImageUrl && (
+          <ImageOverlay
+            url={currentMapImageUrl}
+            bounds={mapBounds}
+            opacity={0.8}
+          />
+        )}
+        
+        {locations.map((location) => {
+          const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
+          
+          return (
+            <Marker
+              key={location.id}
+              position={[location.lat as number, location.lng as number]}
+              icon={customIcon}
+              eventHandlers={{
+                click: () => setSelectedLocation(location)
+              }}
+            >
+              <Popup>
+                <div className="p-2">
+                  <h3 className="font-bold text-amber-900 mb-2">{location.name}</h3>
+                  <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
+                  {location.description && (
+                    <p className="text-sm text-gray-700">{location.description}</p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+      </MapContainer>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
@@ -174,51 +226,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <Card className="border-amber-200 bg-white shadow-lg">
               <CardContent className="p-0">
                 <div className="h-[600px] rounded-lg overflow-hidden border-2 border-amber-200">
-                  <MapContainer
-                    center={[0, 0]}
-                    zoom={mapSettings?.default_zoom || 2}
-                    style={{ height: '100%', width: '100%' }}
-                    maxBounds={mapBounds}
-                    maxBoundsViscosity={1.0}
-                  >
-                    <TileLayer
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    />
-                    
-                    {currentMapImageUrl && (
-                      <ImageOverlay
-                        url={currentMapImageUrl}
-                        bounds={mapBounds}
-                        opacity={0.8}
-                      />
-                    )}
-                    
-                    {convertedLocations.map((location) => {
-                      const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
-                      
-                      return (
-                        <Marker
-                          key={location.id}
-                          position={[(location as any).lat, (location as any).lng]}
-                          icon={customIcon}
-                          eventHandlers={{
-                            click: () => setSelectedLocation(location)
-                          }}
-                        >
-                          <Popup>
-                            <div className="p-2">
-                              <h3 className="font-bold text-amber-900 mb-2">{location.name}</h3>
-                              <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
-                              {location.description && (
-                                <p className="text-sm text-gray-700">{location.description}</p>
-                              )}
-                            </div>
-                          </Popup>
-                        </Marker>
-                      );
-                    })}
-                  </MapContainer>
+                  {renderMap()}
                 </div>
               </CardContent>
             </Card>

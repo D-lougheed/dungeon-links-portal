@@ -69,6 +69,22 @@ interface MapSettings {
   center_lng: number;
 }
 
+// Separate click handler component
+const MapClickHandler: React.FC<{
+  isAddingLocation: boolean;
+  onLocationSelect: (lat: number, lng: number) => void;
+}> = ({ isAddingLocation, onLocationSelect }) => {
+  useMapEvents({
+    click(e) {
+      if (isAddingLocation) {
+        console.log(`Map clicked at: ${e.latlng.lat}, ${e.latlng.lng}`);
+        onLocationSelect(e.latlng.lat, e.latlng.lng);
+      }
+    },
+  });
+  return null;
+};
+
 const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
   const [mapSettings, setMapSettings] = useState<MapSettings | null>(null);
   const [locations, setLocations] = useState<MapLocation[]>([]);
@@ -83,13 +99,6 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     icon_id: '',
     lat: 0,
     lng: 0
-  });
-  const [newIcon, setNewIcon] = useState({
-    name: '',
-    tag_type: '',
-    icon_url: '',
-    icon_size_width: 25,
-    icon_size_height: 25
   });
   const [mapImageFile, setMapImageFile] = useState<File | null>(null);
   const [iconImageFile, setIconImageFile] = useState<File | null>(null);
@@ -261,22 +270,18 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     }
   };
 
-  // Simple click handler component
-  function ClickHandler() {
-    useMapEvents({
-      click(e) {
-        if (isAddingLocation) {
-          console.log(`Map clicked at: ${e.latlng.lat}, ${e.latlng.lng}`);
-          setNewLocation(prev => ({
-            ...prev,
-            lat: e.latlng.lat,
-            lng: e.latlng.lng
-          }));
-        }
-      },
-    });
-    return null;
-  }
+  const handleLocationClick = (location: MapLocation) => {
+    setSelectedLocation(location);
+    setIsAddingLocation(false);
+  };
+
+  const handleMapClick = (lat: number, lng: number) => {
+    setNewLocation(prev => ({
+      ...prev,
+      lat,
+      lng
+    }));
+  };
 
   if (isLoading) {
     return (
@@ -288,6 +293,199 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
 
   const currentMapImageUrl = getImageUrl(mapSettings?.map_image_path, mapSettings?.map_image_url);
   const mapBounds = L.latLngBounds([[-85, -180], [85, 180]]);
+
+  // Extract map rendering component
+  const renderMap = () => {
+    return (
+      <MapContainer
+        center={[0, 0]}
+        zoom={mapSettings?.default_zoom || 2}
+        style={{ height: '100%', width: '100%' }}
+        maxBounds={mapBounds}
+        maxBoundsViscosity={1.0}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        />
+        
+        {currentMapImageUrl && (
+          <ImageOverlay
+            url={currentMapImageUrl}
+            bounds={mapBounds}
+            opacity={0.8}
+          />
+        )}
+        
+        <MapClickHandler 
+          isAddingLocation={isAddingLocation}
+          onLocationSelect={handleMapClick}
+        />
+        
+        {locations.map((location) => {
+          const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
+          
+          return (
+            <Marker
+              key={location.id}
+              position={[location.lat, location.lng]}
+              icon={customIcon}
+              eventHandlers={{
+                click: () => handleLocationClick(location)
+              }}
+            >
+              <Popup>
+                <div className="p-2">
+                  <h3 className="font-bold text-lg">{location.name}</h3>
+                  <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
+                  {location.description && (
+                    <p className="text-sm mb-3">{location.description}</p>
+                  )}
+                  <Button
+                    onClick={() => handleDeleteLocation(location.id)}
+                    variant="destructive"
+                    size="sm"
+                    className="w-full"
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    Delete
+                  </Button>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+        
+        {isAddingLocation && newLocation.lat !== 0 && newLocation.lng !== 0 && (
+          <Marker position={[newLocation.lat, newLocation.lng]}>
+            <Popup>
+              <div className="p-2">
+                <h3 className="font-bold text-green-600">New Location</h3>
+                <p className="text-sm">Click "Save Location" to add this marker</p>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+      </MapContainer>
+    );
+  };
+
+  // Extract form component
+  const renderLocationForm = () => {
+    if (!isAddingLocation && !selectedLocation) return null;
+    
+    return (
+      <Card className="border-slate-200 bg-white shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-slate-900">
+            {isAddingLocation ? 'Add New Location' : 'Edit Location'}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isAddingLocation ? (
+            <>
+              <div>
+                <Label htmlFor="locationName">Name</Label>
+                <Input
+                  id="locationName"
+                  value={newLocation.name}
+                  onChange={(e) => setNewLocation(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Location name"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="locationType">Type</Label>
+                <Input
+                  id="locationType"
+                  value={newLocation.location_type}
+                  onChange={(e) => setNewLocation(prev => ({ ...prev, location_type: e.target.value }))}
+                  placeholder="City, Village, Dungeon, etc."
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="locationIcon">Icon</Label>
+                <Select
+                  value={newLocation.icon_id}
+                  onValueChange={(value) => setNewLocation(prev => ({ ...prev, icon_id: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an icon" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Default marker</SelectItem>
+                    {icons.map((icon) => (
+                      <SelectItem key={icon.id} value={icon.id}>
+                        {icon.name} ({icon.tag_type})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="locationDescription">Description</Label>
+                <Textarea
+                  id="locationDescription"
+                  value={newLocation.description}
+                  onChange={(e) => setNewLocation(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Optional description"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Lat: {newLocation.lat.toFixed(4)}</Label>
+                </div>
+                <div>
+                  <Label>Lng: {newLocation.lng.toFixed(4)}</Label>
+                </div>
+              </div>
+              
+              <Button onClick={handleSaveLocation} className="w-full">
+                <Save className="h-4 w-4 mr-2" />
+                Save Location
+              </Button>
+            </>
+          ) : selectedLocation && (
+            <>
+              <div>
+                <Label>Name</Label>
+                <p className="text-sm font-medium">{selectedLocation.name}</p>
+              </div>
+              <div>
+                <Label>Type</Label>
+                <p className="text-sm">{selectedLocation.location_type}</p>
+              </div>
+              {selectedLocation.description && (
+                <div>
+                  <Label>Description</Label>
+                  <p className="text-sm">{selectedLocation.description}</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Lat: {selectedLocation.lat?.toFixed(4) || 'N/A'}</Label>
+                </div>
+                <div>
+                  <Label>Lng: {selectedLocation.lng?.toFixed(4) || 'N/A'}</Label>
+                </div>
+              </div>
+              <Button 
+                onClick={() => handleDeleteLocation(selectedLocation.id)}
+                variant="destructive" 
+                className="w-full"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Location
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
@@ -349,193 +547,14 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
               </CardHeader>
               <CardContent className="p-0">
                 <div className="h-[600px] rounded-lg overflow-hidden border-2 border-slate-200">
-                  <MapContainer
-                    center={[0, 0]}
-                    zoom={mapSettings?.default_zoom || 2}
-                    style={{ height: '100%', width: '100%' }}
-                    maxBounds={mapBounds}
-                    maxBoundsViscosity={1.0}
-                  >
-                    <TileLayer
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    />
-                    
-                    {currentMapImageUrl && (
-                      <ImageOverlay
-                        url={currentMapImageUrl}
-                        bounds={mapBounds}
-                        opacity={0.8}
-                      />
-                    )}
-                    
-                    <ClickHandler />
-                    
-                    {locations.map((location) => {
-                      const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
-                      
-                      return (
-                        <Marker
-                          key={location.id}
-                          position={[location.lat, location.lng]}
-                          icon={customIcon}
-                          eventHandlers={{
-                            click: () => {
-                              setSelectedLocation(location);
-                              setIsAddingLocation(false);
-                            }
-                          }}
-                        >
-                          <Popup>
-                            <div className="p-2">
-                              <h3 className="font-bold text-lg">{location.name}</h3>
-                              <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
-                              {location.description && (
-                                <p className="text-sm mb-3">{location.description}</p>
-                              )}
-                              <Button
-                                onClick={() => handleDeleteLocation(location.id)}
-                                variant="destructive"
-                                size="sm"
-                                className="w-full"
-                              >
-                                <Trash2 className="h-3 w-3 mr-1" />
-                                Delete
-                              </Button>
-                            </div>
-                          </Popup>
-                        </Marker>
-                      );
-                    })}
-                    
-                    {isAddingLocation && newLocation.lat !== 0 && newLocation.lng !== 0 && (
-                      <Marker position={[newLocation.lat, newLocation.lng]}>
-                        <Popup>
-                          <div className="p-2">
-                            <h3 className="font-bold text-green-600">New Location</h3>
-                            <p className="text-sm">Click "Save Location" to add this marker</p>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    )}
-                  </MapContainer>
+                  {renderMap()}
                 </div>
               </CardContent>
             </Card>
           </div>
 
           <div className="xl:col-span-1 space-y-6">
-            {(isAddingLocation || selectedLocation) && (
-              <Card className="border-slate-200 bg-white shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-slate-900">
-                    {isAddingLocation ? 'Add New Location' : 'Edit Location'}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {isAddingLocation ? (
-                    <>
-                      <div>
-                        <Label htmlFor="locationName">Name</Label>
-                        <Input
-                          id="locationName"
-                          value={newLocation.name}
-                          onChange={(e) => setNewLocation(prev => ({ ...prev, name: e.target.value }))}
-                          placeholder="Location name"
-                        />
-                      </div>
-                      
-                      <div>
-                        <Label htmlFor="locationType">Type</Label>
-                        <Input
-                          id="locationType"
-                          value={newLocation.location_type}
-                          onChange={(e) => setNewLocation(prev => ({ ...prev, location_type: e.target.value }))}
-                          placeholder="City, Village, Dungeon, etc."
-                        />
-                      </div>
-                      
-                      <div>
-                        <Label htmlFor="locationIcon">Icon</Label>
-                        <Select
-                          value={newLocation.icon_id}
-                          onValueChange={(value) => setNewLocation(prev => ({ ...prev, icon_id: value }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select an icon" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="">Default marker</SelectItem>
-                            {icons.map((icon) => (
-                              <SelectItem key={icon.id} value={icon.id}>
-                                {icon.name} ({icon.tag_type})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div>
-                        <Label htmlFor="locationDescription">Description</Label>
-                        <Textarea
-                          id="locationDescription"
-                          value={newLocation.description}
-                          onChange={(e) => setNewLocation(prev => ({ ...prev, description: e.target.value }))}
-                          placeholder="Optional description"
-                        />
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label>Lat: {newLocation.lat.toFixed(4)}</Label>
-                        </div>
-                        <div>
-                          <Label>Lng: {newLocation.lng.toFixed(4)}</Label>
-                        </div>
-                      </div>
-                      
-                      <Button onClick={handleSaveLocation} className="w-full">
-                        <Save className="h-4 w-4 mr-2" />
-                        Save Location
-                      </Button>
-                    </>
-                  ) : selectedLocation && (
-                    <>
-                      <div>
-                        <Label>Name</Label>
-                        <p className="text-sm font-medium">{selectedLocation.name}</p>
-                      </div>
-                      <div>
-                        <Label>Type</Label>
-                        <p className="text-sm">{selectedLocation.location_type}</p>
-                      </div>
-                      {selectedLocation.description && (
-                        <div>
-                          <Label>Description</Label>
-                          <p className="text-sm">{selectedLocation.description}</p>
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label>Lat: {selectedLocation.lat?.toFixed(4) || 'N/A'}</Label>
-                        </div>
-                        <div>
-                          <Label>Lng: {selectedLocation.lng?.toFixed(4) || 'N/A'}</Label>
-                        </div>
-                      </div>
-                      <Button 
-                        onClick={() => handleDeleteLocation(selectedLocation.id)}
-                        variant="destructive" 
-                        className="w-full"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Location
-                      </Button>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+            {renderLocationForm()}
           </div>
         </div>
       </main>
