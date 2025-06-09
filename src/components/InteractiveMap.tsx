@@ -56,8 +56,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState<MapLocation | null>(null);
-  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
-  const mapRef = useRef<L.Map | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -90,12 +88,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
       if (settings) {
         setMapSettings(settings);
-        // Set map bounds based on settings or use default world bounds
-        const bounds = L.latLngBounds([[-85, -180], [85, 180]]);
-        setMapBounds(bounds);
       }
 
-      // Load locations with icons - convert coordinates from percentage to lat/lng
+      // Load locations with icons
       const { data: locationsData, error: locationsError } = await supabase
         .from('map_locations')
         .select(`
@@ -108,14 +103,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         throw locationsError;
       }
 
-      // Convert percentage coordinates to lat/lng for Leaflet
-      const convertedLocations = (locationsData || []).map(location => ({
-        ...location,
-        lat: (50 - location.y_coordinate) * 1.8, // Convert y% to latitude
-        lng: (location.x_coordinate - 50) * 3.6   // Convert x% to longitude
-      }));
-
-      setLocations(convertedLocations as any);
+      setLocations(locationsData || []);
     } catch (error) {
       console.error('Error loading map data:', error);
       toast({
@@ -126,10 +114,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleLocationClick = (location: MapLocation) => {
-    setSelectedLocation(location);
   };
 
   const createCustomIcon = (icon: any) => {
@@ -151,6 +135,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   }
 
   const currentMapImageUrl = getImageUrl(mapSettings?.map_image_path, mapSettings?.map_image_url);
+  const mapBounds = L.latLngBounds([[-85, -180], [85, 180]]);
+
+  // Convert percentage coordinates to lat/lng
+  const convertedLocations = locations.map(location => ({
+    ...location,
+    lat: (50 - location.y_coordinate) * 1.8,
+    lng: (location.x_coordinate - 50) * 3.6
+  }));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
@@ -182,56 +174,51 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <Card className="border-amber-200 bg-white shadow-lg">
               <CardContent className="p-0">
                 <div className="h-[600px] rounded-lg overflow-hidden border-2 border-amber-200">
-                  {mapBounds && (
-                    <MapContainer
-                      center={[0, 0]}
-                      zoom={mapSettings?.default_zoom || 2}
-                      style={{ height: '100%', width: '100%' }}
-                      maxBounds={mapBounds}
-                      maxBoundsViscosity={1.0}
-                      ref={mapRef}
-                    >
-                      <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  <MapContainer
+                    center={[0, 0]}
+                    zoom={mapSettings?.default_zoom || 2}
+                    style={{ height: '100%', width: '100%' }}
+                    maxBounds={mapBounds}
+                    maxBoundsViscosity={1.0}
+                  >
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    />
+                    
+                    {currentMapImageUrl && (
+                      <ImageOverlay
+                        url={currentMapImageUrl}
+                        bounds={mapBounds}
+                        opacity={0.8}
                       />
+                    )}
+                    
+                    {convertedLocations.map((location) => {
+                      const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
                       
-                      {/* Custom map image overlay if available */}
-                      {currentMapImageUrl && mapBounds && (
-                        <ImageOverlay
-                          url={currentMapImageUrl}
-                          bounds={mapBounds}
-                          opacity={0.8}
-                        />
-                      )}
-                      
-                      {/* Render locations as markers */}
-                      {locations.map((location) => {
-                        const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
-                        
-                        return (
-                          <Marker
-                            key={location.id}
-                            position={[(location as any).lat, (location as any).lng]}
-                            icon={customIcon}
-                            eventHandlers={{
-                              click: () => handleLocationClick(location)
-                            }}
-                          >
-                            <Popup>
-                              <div className="p-2">
-                                <h3 className="font-bold text-amber-900 mb-2">{location.name}</h3>
-                                <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
-                                {location.description && (
-                                  <p className="text-sm text-gray-700">{location.description}</p>
-                                )}
-                              </div>
-                            </Popup>
-                          </Marker>
-                        );
-                      })}
-                    </MapContainer>
-                  )}
+                      return (
+                        <Marker
+                          key={location.id}
+                          position={[(location as any).lat, (location as any).lng]}
+                          icon={customIcon}
+                          eventHandlers={{
+                            click: () => setSelectedLocation(location)
+                          }}
+                        >
+                          <Popup>
+                            <div className="p-2">
+                              <h3 className="font-bold text-amber-900 mb-2">{location.name}</h3>
+                              <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
+                              {location.description && (
+                                <p className="text-sm text-gray-700">{location.description}</p>
+                              )}
+                            </div>
+                          </Popup>
+                        </Marker>
+                      );
+                    })}
+                  </MapContainer>
                 </div>
               </CardContent>
             </Card>
@@ -267,7 +254,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                               ? 'border-amber-300 bg-amber-50' 
                               : 'border-gray-200 hover:border-amber-200 hover:bg-amber-25'
                           }`}
-                          onClick={() => handleLocationClick(location)}
+                          onClick={() => setSelectedLocation(location)}
                         >
                           <div className="flex items-center space-x-2">
                             {iconUrl ? (
