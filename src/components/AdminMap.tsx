@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, ImageOverlay, Marker, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -36,7 +35,9 @@ interface MapLocation {
   icon_id: string | null;
   zoom_level: number | null;
   icon?: {
+    id: string;
     name: string;
+    tag_type: string;
     icon_url: string;
     icon_file_path: string | null;
     icon_size_width: number;
@@ -164,7 +165,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
         .from('map_locations')
         .select(`
           *,
-          icon:map_icons(name, icon_url, icon_file_path, icon_size_width, icon_size_height)
+          icon:map_icons(id, name, tag_type, icon_url, icon_file_path, icon_size_width, icon_size_height)
         `)
         .order('created_at', { ascending: false });
 
