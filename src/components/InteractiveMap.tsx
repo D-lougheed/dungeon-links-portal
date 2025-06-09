@@ -41,18 +41,14 @@ const LOCATION_TYPES = [
   { value: 'custom', label: 'Custom', color: '#A0A0A0' }
 ];
 
-// Define the image bounds
-const imageBounds: [[number, number], [number, number]] = [[-100, -100], [100, 100]];
+// Define the image bounds for the custom map
+const imageBounds: L.LatLngBoundsExpression = [[-100, -100], [100, 100]];
 
-// Combined component for map content
-const MapContent: React.FC<{
-  locations: MapLocation[];
+// Map events handler component
+const MapEvents: React.FC<{
   onMapClick: (lat: number, lng: number) => void;
-  onEdit: (location: MapLocation) => void;
-  onDelete: (locationId: string) => void;
   isDM: boolean;
-}> = ({ locations, onMapClick, onEdit, onDelete, isDM }) => {
-  // Handle map click events
+}> = ({ onMapClick, isDM }) => {
   useMapEvents({
     click: (e) => {
       if (isDM) {
@@ -60,66 +56,20 @@ const MapContent: React.FC<{
       }
     },
   });
+  return null;
+};
 
-  const createCustomIcon = (locationType: string): L.DivIcon => {
-    const locationTypeData = LOCATION_TYPES.find(type => type.value === locationType);
-    const color = locationTypeData?.color || '#A0A0A0';
-    
-    return L.divIcon({
-      html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
-      className: 'custom-marker',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10]
-    });
-  };
-
-  return (
-    <>
-      <ImageOverlay
-        url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
-        bounds={imageBounds}
-      />
-      {locations.map((location) => (
-        <Marker
-          key={location.id}
-          position={[location.y_coordinate, location.x_coordinate]}
-          icon={createCustomIcon(location.location_type)}
-        >
-          <Popup>
-            <div className="p-2">
-              <h3 className="font-bold text-lg">{location.name}</h3>
-              <p className="text-sm text-gray-600 capitalize mb-2">
-                {LOCATION_TYPES.find(type => type.value === location.location_type)?.label}
-              </p>
-              {location.description && (
-                <p className="text-sm mb-3">{location.description}</p>
-              )}
-              {isDM && (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => onEdit(location)}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Edit className="h-3 w-3 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => onDelete(location.id)}
-                  >
-                    <Trash2 className="h-3 w-3 mr-1" />
-                    Delete
-                  </Button>
-                </div>
-              )}
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-    </>
-  );
+// Create custom marker icon
+const createCustomIcon = (locationType: string): L.DivIcon => {
+  const locationTypeData = LOCATION_TYPES.find(type => type.value === locationType);
+  const color = locationTypeData?.color || '#A0A0A0';
+  
+  return L.divIcon({
+    html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+    className: 'custom-marker',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
+  });
 };
 
 const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
@@ -314,13 +264,50 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   maxBounds={imageBounds}
                   maxBoundsViscosity={1.0}
                 >
-                  <MapContent
-                    locations={locations}
-                    onMapClick={handleMapClick}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                    isDM={isDM}
+                  <ImageOverlay
+                    url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
+                    bounds={imageBounds}
                   />
+                  <MapEvents onMapClick={handleMapClick} isDM={isDM} />
+                  {locations.map((location) => (
+                    <Marker
+                      key={location.id}
+                      position={[location.y_coordinate, location.x_coordinate]}
+                      icon={createCustomIcon(location.location_type)}
+                    >
+                      <Popup>
+                        <div className="p-2">
+                          <h3 className="font-bold text-lg">{location.name}</h3>
+                          <p className="text-sm text-gray-600 capitalize mb-2">
+                            {LOCATION_TYPES.find(type => type.value === location.location_type)?.label}
+                          </p>
+                          {location.description && (
+                            <p className="text-sm mb-3">{location.description}</p>
+                          )}
+                          {isDM && (
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleEdit(location)}
+                                className="bg-blue-600 hover:bg-blue-700"
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleDelete(location.id)}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                Delete
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ))}
                 </MapContainer>
               </CardContent>
             </Card>
