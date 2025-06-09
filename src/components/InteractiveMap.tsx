@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
@@ -48,7 +47,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const markersRef = useRef<L.Marker[]>([]);
   
   const [locations, setLocations] = useState<MapLocation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isPageLoading, setIsPageLoading] = useState(true);
+  const [isMapLoading, setIsMapLoading] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingLocation, setEditingLocation] = useState<MapLocation | null>(null);
   const [clickPosition, setClickPosition] = useState<{ lat: number; lng: number } | null>(null);
@@ -60,66 +61,124 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const isDM = userRole === 'dm';
 
-  // Initialize map
+  // Wait for page to fully load first
   useEffect(() => {
-    if (!mapRef.current) return;
+    const handlePageLoad = () => {
+      console.log('Page fully loaded, ready to initialize map');
+      setIsPageLoading(false);
+    };
 
-    console.log('Initializing map...');
-    
-    // Clean up existing map
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.remove();
-      mapInstanceRef.current = null;
+    if (document.readyState === 'complete') {
+      handlePageLoad();
+    } else {
+      window.addEventListener('load', handlePageLoad);
+      return () => window.removeEventListener('load', handlePageLoad);
     }
+  }, []);
 
-    // Create map with simple configuration
-    const map = L.map(mapRef.current, {
-      crs: L.CRS.Simple,
-      minZoom: -3,
-      maxZoom: 2,
-      center: [0, 0],
-      zoom: -2,
-      zoomControl: true,
-      attributionControl: false
-    });
+  // Initialize map only after page is loaded
+  useEffect(() => {
+    if (isPageLoading || !mapRef.current) return;
 
-    console.log('Map created, adding image overlay...');
+    console.log('Starting map initialization...');
+    setIsMapLoading(true);
+    setMapError(null);
 
-    // Define bounds for the 8K image (8192x4532)
-    const imageWidth = 8192;
-    const imageHeight = 4532;
-    const imageBounds: L.LatLngBoundsExpression = [
-      [0, 0],
-      [imageHeight, imageWidth]
-    ];
-    
-    // Add image overlay
-    const imageUrl = '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png';
-    const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
-      opacity: 1,
-      interactive: false
-    });
-    
-    imageOverlay.addTo(map);
-    
-    // Set view to show the full map
-    map.fitBounds(imageBounds);
-    map.setMaxBounds(imageBounds);
+    // Add a small delay to ensure container is properly rendered
+    const initializeMap = async () => {
+      try {
+        // Wait a bit more to ensure container is stable
+        await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Add click handler for DM users
-    if (isDM) {
-      map.on('click', (e: L.LeafletMouseEvent) => {
-        handleMapClick(e.latlng.lat, e.latlng.lng);
-      });
-    }
+        if (!mapRef.current) {
+          throw new Error('Map container not available');
+        }
 
-    mapInstanceRef.current = map;
-    
-    // Set loading to false after a short delay to allow map to render
-    setTimeout(() => {
-      console.log('Map initialization complete');
-      setIsLoading(false);
-    }, 1000);
+        console.log('Map container ready, creating map instance...');
+
+        // Clean up existing map if any
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
+        }
+
+        // Create map with simple configuration
+        const map = L.map(mapRef.current, {
+          crs: L.CRS.Simple,
+          minZoom: -3,
+          maxZoom: 2,
+          center: [0, 0],
+          zoom: -2,
+          zoomControl: true,
+          attributionControl: false,
+          preferCanvas: true // Use canvas for better performance
+        });
+
+        console.log('Map instance created, setting up image overlay...');
+
+        // Define bounds for the 8K image (8192x4532)
+        const imageWidth = 8192;
+        const imageHeight = 4532;
+        const imageBounds: L.LatLngBoundsExpression = [
+          [0, 0],
+          [imageHeight, imageWidth]
+        ];
+
+        // Preload the image first
+        const imageUrl = '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png';
+        const img = new Image();
+        
+        img.onload = () => {
+          console.log('Image loaded successfully, adding to map...');
+          
+          // Add image overlay
+          const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+            opacity: 1,
+            interactive: false
+          });
+          
+          imageOverlay.addTo(map);
+          
+          // Set view to show the full map
+          map.fitBounds(imageBounds);
+          map.setMaxBounds(imageBounds);
+
+          // Add click handler for DM users
+          if (isDM) {
+            map.on('click', (e: L.LeafletMouseEvent) => {
+              handleMapClick(e.latlng.lat, e.latlng.lng);
+            });
+          }
+
+          mapInstanceRef.current = map;
+          setIsMapLoading(false);
+          console.log('Map initialization completed successfully');
+        };
+
+        img.onerror = () => {
+          throw new Error('Failed to load map image');
+        };
+
+        // Set a timeout for image loading
+        const loadTimeout = setTimeout(() => {
+          throw new Error('Map image loading timed out');
+        }, 15000);
+
+        img.onload = () => {
+          clearTimeout(loadTimeout);
+          img.onload(); // Call the original onload
+        };
+
+        img.src = imageUrl;
+
+      } catch (error) {
+        console.error('Map initialization failed:', error);
+        setMapError(error instanceof Error ? error.message : 'Failed to initialize map');
+        setIsMapLoading(false);
+      }
+    };
+
+    initializeMap();
 
     return () => {
       if (mapInstanceRef.current) {
@@ -127,16 +186,16 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         mapInstanceRef.current = null;
       }
     };
-  }, [isDM]);
+  }, [isPageLoading, isDM]);
 
   // Fetch locations on component mount
   useEffect(() => {
     fetchLocations();
   }, []);
 
-  // Update markers when locations change
+  // Update markers when locations change and map is ready
   useEffect(() => {
-    if (!mapInstanceRef.current || !locations.length || isLoading) return;
+    if (!mapInstanceRef.current || !locations.length || isMapLoading) return;
 
     console.log('Updating markers, locations count:', locations.length);
 
@@ -156,7 +215,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         markersRef.current.push(marker);
       }
     });
-  }, [locations, isLoading]);
+  }, [locations, isMapLoading]);
 
   const createMarker = (location: MapLocation): L.Marker | null => {
     const locationTypeData = LOCATION_TYPES.find(type => type.value === location.location_type);
@@ -390,13 +449,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  if (isLoading) {
+  // Show page loading state
+  if (isPageLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-4"></div>
-          <div className="text-amber-700 text-lg">Loading map...</div>
-          <div className="text-amber-600 text-sm mt-2">Initializing world view...</div>
+          <div className="text-amber-700 text-lg">Loading page...</div>
+          <div className="text-amber-600 text-sm mt-2">Preparing interface...</div>
         </div>
       </div>
     );
@@ -431,11 +491,35 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           <div className="lg:col-span-3">
             <Card className="shadow-lg">
               <CardContent className="p-0">
-                <div
-                  ref={mapRef}
-                  className="h-[600px] w-full rounded-lg bg-gray-200"
-                  style={{ minHeight: '600px' }}
-                />
+                {mapError ? (
+                  <div className="h-[600px] w-full rounded-lg bg-gray-100 flex items-center justify-center">
+                    <div className="text-center text-red-600">
+                      <div className="text-lg font-semibold mb-2">Map Loading Error</div>
+                      <div className="text-sm">{mapError}</div>
+                      <Button 
+                        onClick={() => window.location.reload()} 
+                        className="mt-4"
+                        variant="outline"
+                      >
+                        Reload Page
+                      </Button>
+                    </div>
+                  </div>
+                ) : isMapLoading ? (
+                  <div className="h-[600px] w-full rounded-lg bg-gray-100 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-4"></div>
+                      <div className="text-amber-700 text-lg">Loading map...</div>
+                      <div className="text-amber-600 text-sm mt-2">Initializing world view...</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    ref={mapRef}
+                    className="h-[600px] w-full rounded-lg bg-gray-200"
+                    style={{ minHeight: '600px' }}
+                  />
+                )}
               </CardContent>
             </Card>
           </div>
@@ -545,9 +629,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   <p className="mb-2">
                     <strong>Locations:</strong> {locations.length}
                   </p>
-                  {isDM && (
+                  {isDM && !isMapLoading && (
                     <p className="text-amber-700">
                       Click anywhere on the map to add a new location.
+                    </p>
+                  )}
+                  {isMapLoading && (
+                    <p className="text-amber-600">
+                      Map is loading, please wait...
                     </p>
                   )}
                 </div>
