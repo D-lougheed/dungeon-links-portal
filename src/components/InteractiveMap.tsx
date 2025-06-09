@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft, Plus, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useForm } from 'react-hook-form';
@@ -45,6 +44,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMarker, setEditingMarker] = useState<MapMarker | null>(null);
+  
+  // Zoom and pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const mapRef = useRef<HTMLDivElement>(null);
 
   const form = useForm<z.infer<typeof markerSchema>>({
     resolver: zodResolver(markerSchema),
@@ -74,15 +80,57 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAddingMarker || userRole !== 'dm') return;
+    if (!isAddingMarker || userRole !== 'dm' || isDragging) return;
 
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    const x = ((event.clientX - rect.left - pan.x) / zoom / rect.width) * 100;
+    const y = ((event.clientY - rect.top - pan.y) / zoom / rect.height) * 100;
 
-    setPendingPosition({ x, y });
+    // Clamp values to ensure they're within bounds
+    const clampedX = Math.max(0, Math.min(100, x));
+    const clampedY = Math.max(0, Math.min(100, y));
+
+    setPendingPosition({ x: clampedX, y: clampedY });
     setIsDialogOpen(true);
     setIsAddingMarker(false);
+  };
+
+  const handleWheel = (event: React.WheelEvent) => {
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? -0.1 : 0.1;
+    const newZoom = Math.max(0.5, Math.min(3, zoom + delta));
+    setZoom(newZoom);
+  };
+
+  const handleMouseDown = (event: React.MouseEvent) => {
+    if (isAddingMarker) return;
+    setIsDragging(true);
+    setDragStart({ x: event.clientX - pan.x, y: event.clientY - pan.y });
+  };
+
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (!isDragging || isAddingMarker) return;
+    setPan({
+      x: event.clientX - dragStart.x,
+      y: event.clientY - dragStart.y,
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleZoomIn = () => {
+    setZoom(Math.min(3, zoom + 0.2));
+  };
+
+  const handleZoomOut = () => {
+    setZoom(Math.max(0.5, zoom - 0.2));
+  };
+
+  const handleResetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
   };
 
   const onSubmit = async (values: z.infer<typeof markerSchema>) => {
@@ -203,9 +251,51 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           {/* Layer Controls */}
           <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg">
             <CardHeader>
-              <CardTitle className="text-amber-900">Map Layers</CardTitle>
+              <CardTitle className="text-amber-900">Map Controls</CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Zoom Controls */}
+              <div className="mb-6 p-4 bg-amber-50 rounded-lg">
+                <h4 className="font-medium text-amber-900 mb-3">Zoom & Pan</h4>
+                <div className="flex flex-col space-y-2">
+                  <Button
+                    onClick={handleZoomIn}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center justify-center"
+                  >
+                    <ZoomIn className="h-4 w-4 mr-2" />
+                    Zoom In
+                  </Button>
+                  <Button
+                    onClick={handleZoomOut}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center justify-center"
+                  >
+                    <ZoomOut className="h-4 w-4 mr-2" />
+                    Zoom Out
+                  </Button>
+                  <Button
+                    onClick={handleResetView}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center justify-center"
+                  >
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Reset View
+                  </Button>
+                </div>
+                <div className="mt-2 text-xs text-amber-700">
+                  Zoom: {Math.round(zoom * 100)}%
+                </div>
+                <div className="text-xs text-amber-600 mt-1">
+                  Use mouse wheel to zoom, drag to pan
+                </div>
+              </div>
+
+              {/* Layer Controls */}
+              <h4 className="font-medium text-amber-900 mb-3">Map Layers</h4>
               <div className="space-y-3">
                 {layers.map((layer) => (
                   <div key={layer} className="flex items-center space-x-2">
@@ -253,71 +343,88 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               </CardHeader>
               <CardContent>
                 <div
-                  className="relative w-full h-96 bg-amber-50 border-2 border-amber-300 rounded-lg overflow-hidden cursor-crosshair"
-                  onClick={handleMapClick}
+                  ref={mapRef}
+                  className="relative w-full h-96 bg-amber-50 border-2 border-amber-300 rounded-lg overflow-hidden select-none"
                   style={{
-                    backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
+                    cursor: isAddingMarker ? 'crosshair' : isDragging ? 'grabbing' : 'grab',
                   }}
+                  onWheel={handleWheel}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  onClick={handleMapClick}
                 >
-                  {filteredMarkers.map((marker) => (
-                    <div
-                      key={marker.id}
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
-                      style={{
-                        left: `${marker.x}%`,
-                        top: `${marker.y}%`,
-                      }}
-                    >
+                  <div
+                    className="absolute inset-0 transition-transform duration-100"
+                    style={{
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                      transformOrigin: '0 0',
+                      backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      width: '100%',
+                      height: '100%',
+                    }}
+                  >
+                    {filteredMarkers.map((marker) => (
                       <div
-                        className={`w-4 h-4 rounded-full cursor-pointer transition-all duration-200 border-2 border-white shadow-lg hover:scale-150 ${
-                          marker.layer === 'Political' ? 'bg-red-500' :
-                          marker.layer === 'Geographic' ? 'bg-green-500' :
-                          marker.layer === 'Cities' ? 'bg-blue-500' :
-                          marker.layer === 'Dungeons' ? 'bg-purple-500' :
-                          'bg-yellow-500'
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMarker(marker);
+                        key={marker.id}
+                        className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
+                        style={{
+                          left: `${marker.x}%`,
+                          top: `${marker.y}%`,
                         }}
-                      />
-                      
-                      {/* Marker tooltip */}
-                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                        {marker.name} ({marker.layer})
-                      </div>
-                      
-                      {/* Edit/Delete buttons for DM */}
-                      {userRole === 'dm' && (
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 w-6 p-0"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditMarker(marker);
-                            }}
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteMarker(marker.id);
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
+                      >
+                        <div
+                          className={`w-4 h-4 rounded-full cursor-pointer transition-all duration-200 border-2 border-white shadow-lg hover:scale-150 ${
+                            marker.layer === 'Political' ? 'bg-red-500' :
+                            marker.layer === 'Geographic' ? 'bg-green-500' :
+                            marker.layer === 'Cities' ? 'bg-blue-500' :
+                            marker.layer === 'Dungeons' ? 'bg-purple-500' :
+                            'bg-yellow-500'
+                          }`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedMarker(marker);
+                          }}
+                        />
+                        
+                        {/* Marker tooltip */}
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                          {marker.name} ({marker.layer})
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        
+                        {/* Edit/Delete buttons for DM */}
+                        {userRole === 'dm' && (
+                          <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 w-6 p-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditMarker(marker);
+                              }}
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteMarker(marker.id);
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </CardContent>
             </Card>
