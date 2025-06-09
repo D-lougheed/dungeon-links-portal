@@ -86,7 +86,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         // Create map with simple CRS for custom image
         const map = L.map(mapRef.current!, {
           crs: L.CRS.Simple,
-          minZoom: -3,
+          minZoom: -5,
           maxZoom: 5,
           center: [0, 0],
           zoom: 0,
@@ -96,8 +96,16 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
         console.log('Map created, adding image overlay...');
 
-        // Define image bounds - using a larger coordinate system
-        const imageBounds: L.LatLngBoundsExpression = [[-1000, -1000], [1000, 1000]];
+        // Define image bounds based on actual dimensions (8192x4532)
+        // Using the actual aspect ratio: 8192/4532 ≈ 1.807
+        const imageWidth = 8192;
+        const imageHeight = 4532;
+        
+        // Center the image around [0, 0] and use the actual dimensions
+        const imageBounds: L.LatLngBoundsExpression = [
+          [-imageHeight/2, -imageWidth/2], // Southwest corner
+          [imageHeight/2, imageWidth/2]    // Northeast corner
+        ];
         
         // Add image overlay with the uploaded map
         const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
@@ -106,12 +114,16 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         });
         
         imageOverlay.addTo(map);
-        console.log('Image overlay added');
+        console.log('Image overlay added with bounds:', imageBounds);
         
-        // Set map view to fit the image
-        map.fitBounds(imageBounds);
+        // Set map view to center with initial zoom equivalent to 5000px view
+        // Calculate zoom level based on desired view size
+        const containerHeight = mapRef.current?.clientHeight || 600;
+        const zoomLevel = Math.log2(containerHeight / 5000) + 1;
+        
+        map.setView([0, 0], zoomLevel);
         map.setMaxBounds(imageBounds);
-        console.log('Map bounds set');
+        console.log('Map view set with zoom level:', zoomLevel);
 
         // Add click handler for DM users only
         if (isDM) {
