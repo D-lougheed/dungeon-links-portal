@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -22,6 +21,7 @@ import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
 import AdminTools from './AdminTools';
+import InteractiveMap from './InteractiveMap';
 
 const Dashboard = () => {
   const { signOut, user, userRole } = useAuth();
@@ -35,6 +35,14 @@ const Dashboard = () => {
       icon: Settings,
       status: "Available",
       dmOnly: true
+    },
+    {
+      id: "interactive-map",
+      title: "Interactive World Map",
+      description: "View and manage campaign world locations with an interactive map",
+      icon: Map,
+      status: "Available",
+      dmOnly: false
     },
     {
       id: "general-ai-assistant",
@@ -67,14 +75,6 @@ const Dashboard = () => {
       icon: BookOpen,
       status: "Coming Soon",
       dmOnly: true
-    },
-    {
-      id: "maps-locations",
-      title: "Maps & Locations",
-      description: "World maps, dungeons, and important locations",
-      icon: Map,
-      status: "Coming Soon",
-      dmOnly: false
     },
     {
       id: "npcs-factions",
@@ -131,6 +131,10 @@ const Dashboard = () => {
 
   if (activeFeature === "admin-tools") {
     return <AdminTools onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "interactive-map") {
+    return <InteractiveMap onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "general-ai-assistant") {
