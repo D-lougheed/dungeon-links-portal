@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
@@ -49,6 +48,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [mapError, setMapError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingLocation, setEditingLocation] = useState<MapLocation | null>(null);
   const [clickPosition, setClickPosition] = useState<{ lat: number; lng: number } | null>(null);
@@ -60,16 +60,17 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const isDM = userRole === 'dm';
 
-  // Initialize map with the new lower resolution image
+  // Initialize map with simpler approach
   useEffect(() => {
-    const initializeMap = () => {
+    const initializeMap = async () => {
       if (!mapRef.current) {
         console.log('MapRef not available for initialization');
         return;
       }
 
       try {
-        console.log('Creating map instance...');
+        console.log('Starting map initialization...');
+        setMapError(null);
         
         // Clean up existing map
         if (mapInstanceRef.current) {
@@ -77,44 +78,53 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           mapInstanceRef.current = null;
         }
 
-        // Create map with simple settings for the lower resolution image
+        // Create map with CRS.Simple for image overlay
         const map = L.map(mapRef.current, {
           crs: L.CRS.Simple,
-          minZoom: -2,
-          maxZoom: 2,
+          minZoom: -3,
+          maxZoom: 1,
           center: [0, 0],
-          zoom: -1,
+          zoom: -2,
           zoomControl: true,
           attributionControl: false
         });
 
-        console.log('Map created, setting up image overlay...');
+        console.log('Map instance created');
 
-        // Use reasonable bounds for the new image
-        const imageWidth = 1600; // Estimated width for the new image
-        const imageHeight = 1000; // Estimated height for the new image
-        
+        // Simple bounds for the image - using conservative estimates
         const imageBounds: L.LatLngBoundsExpression = [
-          [-imageHeight/2, -imageWidth/2],
-          [imageHeight/2, imageWidth/2]
+          [-500, -800],  // Southwest corner
+          [500, 800]     // Northeast corner
         ];
         
-        // Add image overlay with the new image
-        const imageOverlay = L.imageOverlay(
-          '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png',
-          imageBounds,
-          {
-            opacity: 1,
-            interactive: false
-          }
-        );
+        // Create image overlay
+        const imageUrl = '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png';
+        console.log('Loading image:', imageUrl);
+        
+        const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+          opacity: 1,
+          interactive: false,
+          crossOrigin: 'anonymous'
+        });
+        
+        // Add error handling for image loading
+        imageOverlay.on('load', () => {
+          console.log('Image loaded successfully');
+          setIsLoading(false);
+        });
+        
+        imageOverlay.on('error', (e) => {
+          console.error('Image failed to load:', e);
+          setMapError('Failed to load map image');
+          setIsLoading(false);
+        });
         
         imageOverlay.addTo(map);
-        console.log('Image overlay added');
+        console.log('Image overlay added to map');
         
-        // Set initial view
-        map.setView([0, 0], -1);
-        map.setMaxBounds(imageBounds);
+        // Set view and bounds
+        map.fitBounds(imageBounds);
+        map.setMaxBounds(imageBounds.map(bound => [bound[0] * 1.1, bound[1] * 1.1]) as L.LatLngBoundsExpression);
 
         // Add click handler for DM users
         if (isDM) {
@@ -126,19 +136,25 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
         // Store map instance
         mapInstanceRef.current = map;
-        console.log('Map initialization completed');
+        console.log('Map initialization completed successfully');
         
-        setIsLoading(false);
+        // Set loading to false after a short delay if image doesn't trigger load event
+        setTimeout(() => {
+          if (isLoading) {
+            console.log('Setting loading to false after timeout');
+            setIsLoading(false);
+          }
+        }, 3000);
 
       } catch (error) {
         console.error('Error during map initialization:', error);
+        setMapError('Failed to initialize map');
         setIsLoading(false);
       }
     };
 
     if (mapRef.current) {
-      // Small delay to ensure DOM is ready
-      setTimeout(initializeMap, 100);
+      initializeMap();
     }
 
     // Cleanup function
@@ -157,8 +173,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   // Update markers when locations change
   useEffect(() => {
-    if (!mapInstanceRef.current || !locations.length) {
-      console.log('Map not ready or no locations to display');
+    if (!mapInstanceRef.current) {
+      console.log('Map not ready for markers');
+      return;
+    }
+
+    if (!locations.length) {
+      console.log('No locations to display');
       return;
     }
 
@@ -420,6 +441,21 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-4"></div>
           <div className="text-amber-700 text-lg">Loading map...</div>
+          <div className="text-amber-600 text-sm mt-2">Initializing world view...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mapError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-600 text-lg mb-4">Map Error</div>
+          <div className="text-amber-700 mb-4">{mapError}</div>
+          <Button onClick={() => window.location.reload()} className="bg-amber-600 hover:bg-amber-700">
+            Reload Page
+          </Button>
         </div>
       </div>
     );
@@ -459,6 +495,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   className="h-[600px] w-full rounded-lg bg-gray-200 relative"
                   style={{ minHeight: '600px' }}
                 >
+                  {/* Show overlay if map is still loading */}
+                  {isLoading && (
+                    <div className="absolute inset-0 bg-gray-100 flex items-center justify-center z-10 rounded-lg">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600 mx-auto mb-2"></div>
+                        <div className="text-amber-700 text-sm">Loading world map...</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
