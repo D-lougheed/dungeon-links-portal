@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
@@ -62,70 +61,101 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   // Initialize map
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current) {
+      console.log('MapRef not available yet');
+      return;
+    }
 
     // Clean up existing map
     if (mapInstanceRef.current) {
+      console.log('Cleaning up existing map');
       mapInstanceRef.current.remove();
       mapInstanceRef.current = null;
     }
 
-    console.log('Initializing Leaflet map');
+    console.log('Starting map initialization...');
     
     try {
-      // Create map with simple CRS for custom image
-      const map = L.map(mapRef.current, {
-        crs: L.CRS.Simple,
-        minZoom: -2,
-        maxZoom: 4,
-        center: [0, 0],
-        zoom: 0,
-        zoomControl: true,
-        attributionControl: false
-      });
-
-      // Define image bounds - using a larger coordinate system
-      const imageBounds: L.LatLngBoundsExpression = [[-512, -512], [512, 512]];
-      
-      // Add image overlay with the uploaded map
+      // Test if the image exists first
       const imageUrl = '/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png';
-      console.log('Adding image overlay with URL:', imageUrl);
+      const testImage = new Image();
       
-      const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
-        opacity: 1,
-        interactive: false
-      });
-      
-      imageOverlay.addTo(map);
-      
-      // Set map view to fit the image
-      map.fitBounds(imageBounds);
-      map.setMaxBounds(imageBounds);
-
-      // Add click handler for DM users only
-      if (isDM) {
-        map.on('click', (e: L.LeafletMouseEvent) => {
-          console.log('Map clicked at:', e.latlng);
-          handleMapClick(e.latlng.lat, e.latlng.lng);
+      testImage.onload = () => {
+        console.log('Image loaded successfully, creating map...');
+        
+        // Create map with simple CRS for custom image
+        const map = L.map(mapRef.current!, {
+          crs: L.CRS.Simple,
+          minZoom: -3,
+          maxZoom: 5,
+          center: [0, 0],
+          zoom: 0,
+          zoomControl: true,
+          attributionControl: false
         });
-      }
 
-      // Store map instance
-      mapInstanceRef.current = map;
+        console.log('Map created, adding image overlay...');
 
-      console.log('Map initialized successfully');
+        // Define image bounds - using a larger coordinate system
+        const imageBounds: L.LatLngBoundsExpression = [[-1000, -1000], [1000, 1000]];
+        
+        // Add image overlay with the uploaded map
+        const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+          opacity: 1,
+          interactive: false
+        });
+        
+        imageOverlay.addTo(map);
+        console.log('Image overlay added');
+        
+        // Set map view to fit the image
+        map.fitBounds(imageBounds);
+        map.setMaxBounds(imageBounds);
+        console.log('Map bounds set');
+
+        // Add click handler for DM users only
+        if (isDM) {
+          map.on('click', (e: L.LeafletMouseEvent) => {
+            console.log('Map clicked at:', e.latlng);
+            handleMapClick(e.latlng.lat, e.latlng.lng);
+          });
+          console.log('Click handler added for DM');
+        }
+
+        // Store map instance
+        mapInstanceRef.current = map;
+        console.log('Map initialization completed successfully');
+      };
+
+      testImage.onerror = () => {
+        console.error('Failed to load map image:', imageUrl);
+        toast({
+          title: "Error",
+          description: "Failed to load map image",
+          variant: "destructive",
+        });
+      };
+
+      testImage.src = imageUrl;
+
     } catch (error) {
-      console.error('Error initializing map:', error);
+      console.error('Error during map initialization:', error);
+      toast({
+        title: "Error",
+        description: "Failed to initialize map",
+        variant: "destructive",
+      });
     }
 
     // Cleanup function
     return () => {
+      console.log('Cleaning up map on unmount');
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
     };
-  }, [isDM]);
+  }, [isDM, toast]);
 
   // Fetch locations on component mount
   useEffect(() => {
@@ -134,7 +164,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   // Update markers when locations change
   useEffect(() => {
-    if (!mapInstanceRef.current || !locations.length) return;
+    if (!mapInstanceRef.current || !locations.length) {
+      console.log('Map not ready or no locations to display');
+      return;
+    }
 
     console.log('Updating markers, locations count:', locations.length);
 
@@ -164,44 +197,44 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     const icon = L.divIcon({
       html: `<div style="
         background-color: ${color}; 
-        width: 16px; 
-        height: 16px; 
+        width: 20px; 
+        height: 20px; 
         border-radius: 50%; 
-        border: 2px solid white; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        border: 3px solid white; 
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
         display: flex;
         align-items: center;
         justify-content: center;
       "></div>`,
       className: 'custom-marker',
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-      popupAnchor: [0, -8]
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+      popupAnchor: [0, -10]
     });
 
     const marker = L.marker([location.y_coordinate, location.x_coordinate], { icon });
     
     // Create popup content
     let popupContent = `
-      <div style="padding: 8px; min-width: 200px;">
-        <h3 style="font-weight: bold; font-size: 16px; margin: 0 0 4px 0; color: #1f2937;">${location.name}</h3>
-        <p style="font-size: 12px; color: #6b7280; margin: 0 0 8px 0; text-transform: capitalize;">
+      <div style="padding: 10px; min-width: 220px;">
+        <h3 style="font-weight: bold; font-size: 18px; margin: 0 0 6px 0; color: #1f2937;">${location.name}</h3>
+        <p style="font-size: 13px; color: #6b7280; margin: 0 0 10px 0; text-transform: capitalize;">
           ${locationTypeData?.label || location.location_type}
         </p>
     `;
     
     if (location.description) {
-      popupContent += `<p style="font-size: 14px; margin: 0 0 12px 0; color: #374151;">${location.description}</p>`;
+      popupContent += `<p style="font-size: 14px; margin: 0 0 12px 0; color: #374151; line-height: 1.4;">${location.description}</p>`;
     }
     
     if (isDM) {
       popupContent += `
-        <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
           <button onclick="window.editLocation('${location.id}')" style="
             background: #3b82f6; 
             color: white; 
             border: none; 
-            padding: 4px 8px; 
+            padding: 6px 12px; 
             border-radius: 4px; 
             font-size: 12px; 
             cursor: pointer;
@@ -213,7 +246,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             background: #ef4444; 
             color: white; 
             border: none; 
-            padding: 4px 8px; 
+            padding: 6px 12px; 
             border-radius: 4px; 
             font-size: 12px; 
             cursor: pointer;
@@ -228,7 +261,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     popupContent += '</div>';
     
     marker.bindPopup(popupContent, {
-      maxWidth: 250,
+      maxWidth: 280,
       className: 'custom-popup'
     });
     
@@ -429,9 +462,18 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               <CardContent className="p-0">
                 <div
                   ref={mapRef}
-                  className="h-[600px] w-full rounded-lg bg-gray-100"
+                  className="h-[600px] w-full rounded-lg bg-gray-200 relative"
                   style={{ minHeight: '600px' }}
-                />
+                >
+                  {!mapInstanceRef.current && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-500">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-2"></div>
+                        <p>Initializing map...</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
