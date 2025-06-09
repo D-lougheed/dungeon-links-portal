@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
@@ -45,12 +46,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
-  const imageRef = useRef<HTMLImageElement | null>(null);
   
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState(0);
-  const [mapInitError, setMapInitError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingLocation, setEditingLocation] = useState<MapLocation | null>(null);
   const [clickPosition, setClickPosition] = useState<{ lat: number; lng: number } | null>(null);
@@ -62,44 +60,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const isDM = userRole === 'dm';
 
-  // Preload the image to check if it can be loaded
+  // Initialize map with the new lower resolution image
   useEffect(() => {
-    const preloadImage = () => {
-      console.log('Starting image preload...');
-      setLoadingProgress(10);
-      
-      const img = new Image();
-      imageRef.current = img;
-      
-      img.onload = () => {
-        console.log('Image preloaded successfully');
-        setLoadingProgress(50);
-        initializeMap();
-      };
-      
-      img.onerror = (error) => {
-        console.error('Failed to preload image:', error);
-        setMapInitError('Failed to load map image. The image file may be too large or corrupted.');
-        setIsLoading(false);
-      };
-      
-      // Set a longer timeout for the large image
-      const timeout = setTimeout(() => {
-        console.warn('Image preload timed out');
-        setMapInitError('Map image is taking too long to load. This may be due to the large file size.');
-        setIsLoading(false);
-      }, 30000); // 30 second timeout for 8K image
-      
-      img.onload = () => {
-        clearTimeout(timeout);
-        console.log('Image preloaded successfully');
-        setLoadingProgress(50);
-        initializeMap();
-      };
-      
-      img.src = '/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png';
-    };
-
     const initializeMap = () => {
       if (!mapRef.current) {
         console.log('MapRef not available for initialization');
@@ -108,7 +70,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
       try {
         console.log('Creating map instance...');
-        setLoadingProgress(70);
         
         // Clean up existing map
         if (mapInstanceRef.current) {
@@ -116,41 +77,35 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           mapInstanceRef.current = null;
         }
 
-        // Create map with optimized settings for large images
+        // Create map with simple settings for the lower resolution image
         const map = L.map(mapRef.current, {
           crs: L.CRS.Simple,
-          minZoom: -3,
-          maxZoom: 3,
+          minZoom: -2,
+          maxZoom: 2,
           center: [0, 0],
           zoom: -1,
           zoomControl: true,
-          attributionControl: false,
-          preferCanvas: true, // Use canvas for better performance with large images
-          zoomSnap: 0.25,
-          zoomDelta: 0.25
+          attributionControl: false
         });
 
         console.log('Map created, setting up image overlay...');
-        setLoadingProgress(80);
 
-        // Use smaller bounds for better initial performance
-        const scaleFactor = 0.5; // Scale down for better performance
-        const imageWidth = 8192 * scaleFactor;
-        const imageHeight = 4532 * scaleFactor;
+        // Use reasonable bounds for the new image
+        const imageWidth = 1600; // Estimated width for the new image
+        const imageHeight = 1000; // Estimated height for the new image
         
         const imageBounds: L.LatLngBoundsExpression = [
           [-imageHeight/2, -imageWidth/2],
           [imageHeight/2, imageWidth/2]
         ];
         
-        // Add image overlay
+        // Add image overlay with the new image
         const imageOverlay = L.imageOverlay(
-          '/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png',
+          '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png',
           imageBounds,
           {
             opacity: 1,
-            interactive: false,
-            crossOrigin: 'anonymous'
+            interactive: false
           }
         );
         
@@ -160,8 +115,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         // Set initial view
         map.setView([0, 0], -1);
         map.setMaxBounds(imageBounds);
-        
-        setLoadingProgress(90);
 
         // Add click handler for DM users
         if (isDM) {
@@ -175,26 +128,21 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         mapInstanceRef.current = map;
         console.log('Map initialization completed');
         
-        setLoadingProgress(100);
         setIsLoading(false);
 
       } catch (error) {
         console.error('Error during map initialization:', error);
-        setMapInitError('Failed to initialize map. Please try refreshing the page.');
         setIsLoading(false);
       }
     };
 
     if (mapRef.current) {
-      preloadImage();
+      // Small delay to ensure DOM is ready
+      setTimeout(initializeMap, 100);
     }
 
     // Cleanup function
     return () => {
-      if (imageRef.current) {
-        imageRef.current.onload = null;
-        imageRef.current.onerror = null;
-      }
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -466,43 +414,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Show error state if map initialization failed
-  if (mapInitError) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
-        <Card className="max-w-md mx-auto">
-          <CardContent className="pt-6 text-center">
-            <div className="text-red-600 text-lg mb-4">{mapInitError}</div>
-            <div className="text-sm text-gray-600 mb-4">
-              The 8K map image may be too large for your current connection or device. 
-              Try refreshing the page or using a smaller image if the problem persists.
-            </div>
-            <Button onClick={() => window.location.reload()}>
-              Refresh Page
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-4"></div>
-          <div className="text-amber-700 text-lg mb-2">Loading map...</div>
-          <div className="text-sm text-amber-600">
-            {loadingProgress < 50 ? 'Downloading 8K image...' : 
-             loadingProgress < 80 ? 'Initializing map...' : 
-             'Almost ready...'}
-          </div>
-          <div className="w-48 bg-amber-200 rounded-full h-2 mx-auto mt-3">
-            <div 
-              className="bg-amber-600 h-2 rounded-full transition-all duration-500" 
-              style={{ width: `${loadingProgress}%` }}
-            ></div>
-          </div>
+          <div className="text-amber-700 text-lg">Loading map...</div>
         </div>
       </div>
     );
