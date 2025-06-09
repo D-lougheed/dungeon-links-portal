@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { MapContainer, ImageOverlay, Marker, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -44,21 +43,6 @@ const LOCATION_TYPES = [
 // Define the image bounds for the custom map
 const imageBounds: L.LatLngBoundsExpression = [[-100, -100], [100, 100]];
 
-// Map events handler component
-const MapEvents: React.FC<{
-  onMapClick: (lat: number, lng: number) => void;
-  isDM: boolean;
-}> = ({ onMapClick, isDM }) => {
-  useMapEvents({
-    click: (e) => {
-      if (isDM) {
-        onMapClick(e.latlng.lat, e.latlng.lng);
-      }
-    },
-  });
-  return null;
-};
-
 // Create custom marker icon
 const createCustomIcon = (locationType: string): L.DivIcon => {
   const locationTypeData = LOCATION_TYPES.find(type => type.value === locationType);
@@ -70,6 +54,68 @@ const createCustomIcon = (locationType: string): L.DivIcon => {
     iconSize: [20, 20],
     iconAnchor: [10, 10]
   });
+};
+
+// Separate component for map interactions and markers
+const MapInteractionLayer: React.FC<{
+  locations: MapLocation[];
+  onMapClick: (lat: number, lng: number) => void;
+  onEdit: (location: MapLocation) => void;
+  onDelete: (locationId: string) => void;
+  isDM: boolean;
+}> = ({ locations, onMapClick, onEdit, onDelete, isDM }) => {
+  // Handle map click events
+  useMapEvents({
+    click: (e) => {
+      if (isDM) {
+        onMapClick(e.latlng.lat, e.latlng.lng);
+      }
+    },
+  });
+
+  return (
+    <>
+      {locations.map((location) => (
+        <Marker
+          key={location.id}
+          position={[location.y_coordinate, location.x_coordinate]}
+          icon={createCustomIcon(location.location_type)}
+        >
+          <Popup>
+            <div className="p-2">
+              <h3 className="font-bold text-lg">{location.name}</h3>
+              <p className="text-sm text-gray-600 capitalize mb-2">
+                {LOCATION_TYPES.find(type => type.value === location.location_type)?.label}
+              </p>
+              {location.description && (
+                <p className="text-sm mb-3">{location.description}</p>
+              )}
+              {isDM && (
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => onEdit(location)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Edit className="h-3 w-3 mr-1" />
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => onDelete(location.id)}
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    Delete
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Popup>
+        </Marker>
+      ))}
+    </>
+  );
 };
 
 const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
@@ -263,51 +309,21 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   bounds={imageBounds}
                   maxBounds={imageBounds}
                   maxBoundsViscosity={1.0}
+                  whenReady={() => {
+                    console.log('Map is ready');
+                  }}
                 >
                   <ImageOverlay
                     url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
                     bounds={imageBounds}
                   />
-                  <MapEvents onMapClick={handleMapClick} isDM={isDM} />
-                  {locations.map((location) => (
-                    <Marker
-                      key={location.id}
-                      position={[location.y_coordinate, location.x_coordinate]}
-                      icon={createCustomIcon(location.location_type)}
-                    >
-                      <Popup>
-                        <div className="p-2">
-                          <h3 className="font-bold text-lg">{location.name}</h3>
-                          <p className="text-sm text-gray-600 capitalize mb-2">
-                            {LOCATION_TYPES.find(type => type.value === location.location_type)?.label}
-                          </p>
-                          {location.description && (
-                            <p className="text-sm mb-3">{location.description}</p>
-                          )}
-                          {isDM && (
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                onClick={() => handleEdit(location)}
-                                className="bg-blue-600 hover:bg-blue-700"
-                              >
-                                <Edit className="h-3 w-3 mr-1" />
-                                Edit
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDelete(location.id)}
-                              >
-                                <Trash2 className="h-3 w-3 mr-1" />
-                                Delete
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
+                  <MapInteractionLayer
+                    locations={locations}
+                    onMapClick={handleMapClick}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    isDM={isDM}
+                  />
                 </MapContainer>
               </CardContent>
             </Card>
