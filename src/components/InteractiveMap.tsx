@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft, Plus, Edit, Trash2, Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw, Layers, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useForm } from 'react-hook-form';
@@ -44,6 +44,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMarker, setEditingMarker] = useState<MapMarker | null>(null);
+  const [showLayerPanel, setShowLayerPanel] = useState(true);
+  const [showControlPanel, setShowControlPanel] = useState(true);
   
   // Zoom and pan state
   const [zoom, setZoom] = useState(1);
@@ -213,23 +215,130 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const filteredMarkers = markers.filter(marker => visibleLayers.has(marker.layer));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 relative overflow-hidden">
-      {/* Parchment texture overlay */}
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23D4A574%22%20fill-opacity%3D%220.08%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%222%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-70"></div>
-
-      <header className="relative z-10 bg-gradient-to-r from-amber-800 to-orange-800 text-white shadow-lg">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center">
-            <Button
-              onClick={onBack}
-              variant="outline"
-              className="border-amber-200 text-amber-100 hover:bg-amber-700 hover:text-white mr-4"
+    <div className="fixed inset-0 bg-black overflow-hidden">
+      {/* Full Screen Map */}
+      <div
+        ref={mapRef}
+        className="absolute inset-0 w-full h-full"
+        style={{
+          cursor: isAddingMarker ? 'crosshair' : isDragging ? 'grabbing' : 'grab',
+        }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onClick={handleMapClick}
+      >
+        <div
+          className="absolute inset-0 transition-transform duration-100"
+          style={{
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: '0 0',
+            backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            width: '100%',
+            height: '100%',
+          }}
+        >
+          {/* Markers */}
+          {filteredMarkers.map((marker) => (
+            <div
+              key={marker.id}
+              className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
+              style={{
+                left: `${marker.x}%`,
+                top: `${marker.y}%`,
+              }}
             >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Dashboard
-            </Button>
-            <h1 className="text-2xl font-bold">Interactive Campaign Map</h1>
-          </div>
+              <div
+                className={`w-4 h-4 rounded-full cursor-pointer transition-all duration-200 border-2 border-white shadow-lg hover:scale-150 ${
+                  marker.layer === 'Political' ? 'bg-red-500' :
+                  marker.layer === 'Geographic' ? 'bg-green-500' :
+                  marker.layer === 'Cities' ? 'bg-blue-500' :
+                  marker.layer === 'Dungeons' ? 'bg-purple-500' :
+                  'bg-yellow-500'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedMarker(marker);
+                }}
+              />
+              
+              {/* Marker tooltip */}
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                {marker.name} ({marker.layer})
+              </div>
+              
+              {/* Edit/Delete buttons for DM */}
+              {userRole === 'dm' && (
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 w-6 p-0 bg-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEditMarker(marker);
+                    }}
+                  >
+                    <Edit className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 w-6 p-0 text-red-600 hover:text-red-700 bg-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteMarker(marker.id);
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Floating Header Bar */}
+      <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center">
+        <div className="flex items-center space-x-4">
+          <Button
+            onClick={onBack}
+            variant="outline"
+            className="bg-white/90 backdrop-blur-sm border-amber-200 text-amber-900 hover:bg-white"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <h1 className="text-xl font-bold text-white bg-black/50 px-4 py-2 rounded backdrop-blur-sm">
+            Interactive Campaign Map
+            {isAddingMarker && (
+              <span className="text-sm font-normal text-green-400 ml-2">
+                (Click anywhere to add a marker)
+              </span>
+            )}
+          </h1>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <Button
+            onClick={() => setShowLayerPanel(!showLayerPanel)}
+            variant="outline"
+            className="bg-white/90 backdrop-blur-sm"
+          >
+            <Layers className="h-4 w-4" />
+          </Button>
+          <Button
+            onClick={() => setShowControlPanel(!showControlPanel)}
+            variant="outline"
+            className="bg-white/90 backdrop-blur-sm"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
           {userRole === 'dm' && (
             <Button
               onClick={() => setIsAddingMarker(!isAddingMarker)}
@@ -240,230 +349,158 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               } text-white`}
             >
               <Plus className="h-4 w-4 mr-2" />
-              {isAddingMarker ? 'Cancel Adding' : 'Add Marker'}
+              {isAddingMarker ? 'Cancel' : 'Add Marker'}
             </Button>
           )}
         </div>
-      </header>
+      </div>
 
-      <main className="relative z-10 container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Layer Controls */}
-          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-amber-900">Map Controls</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {/* Zoom Controls */}
-              <div className="mb-6 p-4 bg-amber-50 rounded-lg">
-                <h4 className="font-medium text-amber-900 mb-3">Zoom & Pan</h4>
-                <div className="flex flex-col space-y-2">
-                  <Button
-                    onClick={handleZoomIn}
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center justify-center"
-                  >
-                    <ZoomIn className="h-4 w-4 mr-2" />
-                    Zoom In
-                  </Button>
-                  <Button
-                    onClick={handleZoomOut}
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center justify-center"
-                  >
-                    <ZoomOut className="h-4 w-4 mr-2" />
-                    Zoom Out
-                  </Button>
-                  <Button
-                    onClick={handleResetView}
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center justify-center"
-                  >
-                    <RotateCcw className="h-4 w-4 mr-2" />
-                    Reset View
-                  </Button>
-                </div>
-                <div className="mt-2 text-xs text-amber-700">
-                  Zoom: {Math.round(zoom * 100)}%
-                </div>
-                <div className="text-xs text-amber-600 mt-1">
-                  Use mouse wheel to zoom, drag to pan
-                </div>
-              </div>
-
-              {/* Layer Controls */}
-              <h4 className="font-medium text-amber-900 mb-3">Map Layers</h4>
-              <div className="space-y-3">
-                {layers.map((layer) => (
-                  <div key={layer} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={layer}
-                      checked={visibleLayers.has(layer)}
-                      onCheckedChange={() => toggleLayer(layer)}
-                    />
-                    <Label htmlFor={layer} className="text-sm font-medium">
-                      {layer}
-                    </Label>
-                    {visibleLayers.has(layer) ? (
-                      <Eye className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <EyeOff className="h-4 w-4 text-gray-400" />
-                    )}
-                  </div>
-                ))}
-              </div>
-              
-              <div className="mt-6 pt-4 border-t border-amber-200">
-                <h4 className="font-medium text-amber-900 mb-2">Statistics</h4>
-                <p className="text-sm text-amber-700">
-                  Total Markers: {markers.length}
-                </p>
-                <p className="text-sm text-amber-700">
-                  Visible: {filteredMarkers.length}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Map Area */}
-          <div className="lg:col-span-3">
-            <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-amber-900">
-                  Campaign World Map
-                  {isAddingMarker && (
-                    <span className="text-sm font-normal text-green-600 ml-2">
-                      (Click anywhere to add a marker)
-                    </span>
+      {/* Floating Layer Controls Panel */}
+      {showLayerPanel && (
+        <Card className="absolute top-20 left-4 z-20 w-80 bg-white/95 backdrop-blur-sm border-amber-200 shadow-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-amber-900 flex items-center justify-between">
+              <span className="flex items-center">
+                <Layers className="h-5 w-5 mr-2" />
+                Map Layers
+              </span>
+              <Button
+                onClick={() => setShowLayerPanel(false)}
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+              >
+                ×
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {layers.map((layer) => (
+                <div key={layer} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={layer}
+                    checked={visibleLayers.has(layer)}
+                    onCheckedChange={() => toggleLayer(layer)}
+                  />
+                  <Label htmlFor={layer} className="text-sm font-medium flex-1">
+                    {layer}
+                  </Label>
+                  {visibleLayers.has(layer) ? (
+                    <Eye className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <EyeOff className="h-4 w-4 text-gray-400" />
                   )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div
-                  ref={mapRef}
-                  className="relative w-full h-96 bg-amber-50 border-2 border-amber-300 rounded-lg overflow-hidden select-none"
-                  style={{
-                    cursor: isAddingMarker ? 'crosshair' : isDragging ? 'grabbing' : 'grab',
-                  }}
-                  onWheel={handleWheel}
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                  onClick={handleMapClick}
-                >
-                  <div
-                    className="absolute inset-0 transition-transform duration-100"
-                    style={{
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                      transformOrigin: '0 0',
-                      backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      width: '100%',
-                      height: '100%',
-                    }}
-                  >
-                    {filteredMarkers.map((marker) => (
-                      <div
-                        key={marker.id}
-                        className="absolute transform -translate-x-1/2 -translate-y-1/2 group"
-                        style={{
-                          left: `${marker.x}%`,
-                          top: `${marker.y}%`,
-                        }}
-                      >
-                        <div
-                          className={`w-4 h-4 rounded-full cursor-pointer transition-all duration-200 border-2 border-white shadow-lg hover:scale-150 ${
-                            marker.layer === 'Political' ? 'bg-red-500' :
-                            marker.layer === 'Geographic' ? 'bg-green-500' :
-                            marker.layer === 'Cities' ? 'bg-blue-500' :
-                            marker.layer === 'Dungeons' ? 'bg-purple-500' :
-                            'bg-yellow-500'
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedMarker(marker);
-                          }}
-                        />
-                        
-                        {/* Marker tooltip */}
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                          {marker.name} ({marker.layer})
-                        </div>
-                        
-                        {/* Edit/Delete buttons for DM */}
-                        {userRole === 'dm' && (
-                          <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 w-6 p-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEditMarker(marker);
-                              }}
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteMarker(marker.id);
-                              }}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              ))}
+            </div>
+            
+            <div className="mt-6 pt-4 border-t border-amber-200">
+              <h4 className="font-medium text-amber-900 mb-2">Statistics</h4>
+              <p className="text-sm text-amber-700">
+                Total Markers: {markers.length}
+              </p>
+              <p className="text-sm text-amber-700">
+                Visible: {filteredMarkers.length}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-            {/* Selected Marker Info */}
-            {selectedMarker && (
-              <Card className="mt-4 bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-amber-900">Marker Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-sm font-medium text-amber-700">Name</Label>
-                      <p className="text-amber-900">{selectedMarker.name}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-amber-700">Layer</Label>
-                      <p className="text-amber-900">{selectedMarker.layer}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-amber-700">Position</Label>
-                      <p className="text-amber-900">
-                        X: {selectedMarker.x.toFixed(1)}%, Y: {selectedMarker.y.toFixed(1)}%
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={() => setSelectedMarker(null)}
-                    className="mt-4 bg-amber-600 hover:bg-amber-700 text-white"
-                  >
-                    Close Details
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
-      </main>
+      {/* Floating Zoom Controls Panel */}
+      {showControlPanel && (
+        <Card className="absolute top-20 right-4 z-20 w-64 bg-white/95 backdrop-blur-sm border-amber-200 shadow-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-amber-900 flex items-center justify-between">
+              <span className="flex items-center">
+                <Settings className="h-5 w-5 mr-2" />
+                Map Controls
+              </span>
+              <Button
+                onClick={() => setShowControlPanel(false)}
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+              >
+                ×
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <Button
+                onClick={handleZoomIn}
+                variant="outline"
+                size="sm"
+                className="w-full flex items-center justify-center"
+              >
+                <ZoomIn className="h-4 w-4 mr-2" />
+                Zoom In
+              </Button>
+              <Button
+                onClick={handleZoomOut}
+                variant="outline"
+                size="sm"
+                className="w-full flex items-center justify-center"
+              >
+                <ZoomOut className="h-4 w-4 mr-2" />
+                Zoom Out
+              </Button>
+              <Button
+                onClick={handleResetView}
+                variant="outline"
+                size="sm"
+                className="w-full flex items-center justify-center"
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Reset View
+              </Button>
+            </div>
+            <div className="mt-4 text-xs text-amber-700 space-y-1">
+              <div>Zoom: {Math.round(zoom * 100)}%</div>
+              <div className="text-amber-600">Use mouse wheel to zoom, drag to pan</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Floating Selected Marker Info */}
+      {selectedMarker && (
+        <Card className="absolute bottom-4 left-4 right-4 z-20 bg-white/95 backdrop-blur-sm border-amber-200 shadow-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-amber-900 flex items-center justify-between">
+              Marker Details
+              <Button
+                onClick={() => setSelectedMarker(null)}
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+              >
+                ×
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-sm font-medium text-amber-700">Name</Label>
+                <p className="text-amber-900">{selectedMarker.name}</p>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-amber-700">Layer</Label>
+                <p className="text-amber-900">{selectedMarker.layer}</p>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-amber-700">Position</Label>
+                <p className="text-amber-900">
+                  X: {selectedMarker.x.toFixed(1)}%, Y: {selectedMarker.y.toFixed(1)}%
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add/Edit Marker Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
