@@ -46,11 +46,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
-  const isInitializingRef = useRef(false);
   
   const [locations, setLocations] = useState<MapLocation[]>([]);
-  const [isPageLoading, setIsPageLoading] = useState(true);
-  const [isMapLoading, setIsMapLoading] = useState(false);
+  const [isMapLoading, setIsMapLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingLocation, setEditingLocation] = useState<MapLocation | null>(null);
@@ -63,128 +61,75 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const isDM = userRole === 'dm';
 
-  // Wait for page to fully load first
+  // Initialize map - simplified approach
   useEffect(() => {
-    const handlePageLoad = () => {
-      console.log('Page fully loaded, ready to initialize map');
-      setIsPageLoading(false);
-    };
+    if (!mapRef.current || mapInstanceRef.current) return;
 
-    if (document.readyState === 'complete') {
-      handlePageLoad();
-    } else {
-      window.addEventListener('load', handlePageLoad);
-      return () => window.removeEventListener('load', handlePageLoad);
-    }
-  }, []);
-
-  // Initialize map only after page is loaded
-  useEffect(() => {
-    if (isPageLoading || !mapRef.current || isInitializingRef.current) return;
-
-    console.log('Starting map initialization...');
+    console.log('Initializing map directly...');
     setIsMapLoading(true);
     setMapError(null);
-    isInitializingRef.current = true;
 
-    const initializeMap = async () => {
-      try {
-        // Ensure container is still available
-        if (!mapRef.current) {
-          throw new Error('Map container not available at start');
-        }
-
-        console.log('Map container confirmed, waiting for stability...');
-        
-        // Wait for container to be stable
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        // Check again after delay
-        if (!mapRef.current) {
-          throw new Error('Map container lost during initialization');
-        }
-
-        console.log('Creating map instance...');
-
-        // Clean up existing map if any
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.remove();
-          mapInstanceRef.current = null;
-        }
-
-        // Verify container one more time before creating map
-        const container = mapRef.current;
-        if (!container) {
-          throw new Error('Container reference lost');
-        }
-
-        // Create map with the stored container reference
-        const map = L.map(container, {
-          crs: L.CRS.Simple,
-          minZoom: -3,
-          maxZoom: 2,
-          center: [0, 0],
-          zoom: -2,
-          zoomControl: true,
-          attributionControl: false,
-          preferCanvas: true
-        });
-
-        console.log('Map instance created successfully');
-
-        // Define bounds for the image
-        const imageWidth = 8192;
-        const imageHeight = 4532;
-        const imageBounds: L.LatLngBoundsExpression = [
-          [0, 0],
-          [imageHeight, imageWidth]
-        ];
-
-        // Load and add image
-        const imageUrl = '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png';
-        
-        console.log('Adding image overlay...');
-        const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
-          opacity: 1,
-          interactive: false
-        });
-        
-        imageOverlay.addTo(map);
-        
-        // Set view
-        map.fitBounds(imageBounds);
-        map.setMaxBounds(imageBounds);
-
-        // Add click handler for DM users
-        if (isDM) {
-          map.on('click', (e: L.LeafletMouseEvent) => {
-            handleMapClick(e.latlng.lat, e.latlng.lng);
-          });
-        }
-
-        mapInstanceRef.current = map;
-        setIsMapLoading(false);
-        console.log('Map initialization completed successfully');
-
-      } catch (error) {
-        console.error('Map initialization failed:', error);
-        setMapError(error instanceof Error ? error.message : 'Failed to initialize map');
-        setIsMapLoading(false);
-      } finally {
-        isInitializingRef.current = false;
-      }
-    };
-
-    initializeMap();
-
-    return () => {
-      isInitializingRef.current = false;
+    try {
+      // Clean up existing map if any
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
-    };
-  }, [isPageLoading, isDM]);
+
+      // Create map immediately without any delays
+      const map = L.map(mapRef.current, {
+        crs: L.CRS.Simple,
+        minZoom: -3,
+        maxZoom: 2,
+        center: [0, 0],
+        zoom: -2,
+        zoomControl: true,
+        attributionControl: false,
+        preferCanvas: true
+      });
+
+      console.log('Map instance created successfully');
+
+      // Define bounds for the image
+      const imageWidth = 8192;
+      const imageHeight = 4532;
+      const imageBounds: L.LatLngBoundsExpression = [
+        [0, 0],
+        [imageHeight, imageWidth]
+      ];
+
+      // Load and add image
+      const imageUrl = '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png';
+      
+      console.log('Adding image overlay...');
+      const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+        opacity: 1,
+        interactive: false
+      });
+      
+      imageOverlay.addTo(map);
+      
+      // Set view
+      map.fitBounds(imageBounds);
+      map.setMaxBounds(imageBounds);
+
+      // Add click handler for DM users
+      if (isDM) {
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          handleMapClick(e.latlng.lat, e.latlng.lng);
+        });
+      }
+
+      mapInstanceRef.current = map;
+      setIsMapLoading(false);
+      console.log('Map initialization completed successfully');
+
+    } catch (error) {
+      console.error('Map initialization failed:', error);
+      setMapError(error instanceof Error ? error.message : 'Failed to initialize map');
+      setIsMapLoading(false);
+    }
+  }, [isDM]);
 
   // Fetch locations on component mount
   useEffect(() => {
@@ -447,19 +392,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Show page loading state
-  if (isPageLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-4"></div>
-          <div className="text-amber-700 text-lg">Loading page...</div>
-          <div className="text-amber-600 text-sm mt-2">Preparing interface...</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
       <header className="bg-gradient-to-r from-amber-800 to-orange-800 text-white shadow-lg">
@@ -497,8 +429,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                       <Button 
                         onClick={() => {
                           setMapError(null);
-                          setIsPageLoading(true);
-                          setTimeout(() => setIsPageLoading(false), 100);
+                          setIsMapLoading(true);
+                          // Force re-render by clearing and recreating the map
+                          if (mapInstanceRef.current) {
+                            mapInstanceRef.current.remove();
+                            mapInstanceRef.current = null;
+                          }
                         }} 
                         className="mt-4"
                         variant="outline"
