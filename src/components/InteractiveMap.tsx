@@ -44,8 +44,15 @@ const LOCATION_TYPES = [
 // Define the image bounds
 const imageBounds: [[number, number], [number, number]] = [[-100, -100], [100, 100]];
 
-// Separate component for handling map clicks
-const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void, isDM: boolean }> = ({ onMapClick, isDM }) => {
+// Combined component for map content
+const MapContent: React.FC<{
+  locations: MapLocation[];
+  onMapClick: (lat: number, lng: number) => void;
+  onEdit: (location: MapLocation) => void;
+  onDelete: (locationId: string) => void;
+  isDM: boolean;
+}> = ({ locations, onMapClick, onEdit, onDelete, isDM }) => {
+  // Handle map click events
   useMapEvents({
     click: (e) => {
       if (isDM) {
@@ -53,16 +60,7 @@ const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void
       }
     },
   });
-  return null;
-};
 
-// Separate component for map markers
-const MapMarkers: React.FC<{
-  locations: MapLocation[];
-  onEdit: (location: MapLocation) => void;
-  onDelete: (locationId: string) => void;
-  isDM: boolean;
-}> = ({ locations, onEdit, onDelete, isDM }) => {
   const createCustomIcon = (locationType: string): L.DivIcon => {
     const locationTypeData = LOCATION_TYPES.find(type => type.value === locationType);
     const color = locationTypeData?.color || '#A0A0A0';
@@ -77,6 +75,10 @@ const MapMarkers: React.FC<{
 
   return (
     <>
+      <ImageOverlay
+        url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
+        bounds={imageBounds}
+      />
       {locations.map((location) => (
         <Marker
           key={location.id}
@@ -312,13 +314,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   maxBounds={imageBounds}
                   maxBoundsViscosity={1.0}
                 >
-                  <ImageOverlay
-                    url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
-                    bounds={imageBounds}
-                  />
-                  <MapClickHandler onMapClick={handleMapClick} isDM={isDM} />
-                  <MapMarkers
+                  <MapContent
                     locations={locations}
+                    onMapClick={handleMapClick}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
                     isDM={isDM}
