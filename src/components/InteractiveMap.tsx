@@ -242,13 +242,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             width: '100vw',
             height: '100vh',
             imageRendering: 'auto',
-            WebkitImageRendering: 'auto',
-            MozImageRendering: 'auto',
-            msImageRendering: 'auto',
             filter: 'none',
             backfaceVisibility: 'hidden',
-            WebkitBackfaceVisibility: 'hidden',
-            WebkitTransform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
             willChange: 'transform',
           }}
         >
