@@ -1,5 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, ImageOverlay, Marker, Popup, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,6 +13,14 @@ import { ArrowLeft, MapPin, Upload, Trash2, Save, Plus, Settings, Image } from '
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+
+// Fix Leaflet default markers
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 interface AdminMapProps {
   onBack: () => void;
@@ -54,6 +65,24 @@ interface MapSettings {
   center_lng: number;
 }
 
+// Component to handle map clicks for adding new locations
+function MapClickHandler({ 
+  isAddingLocation, 
+  onLocationClick 
+}: { 
+  isAddingLocation: boolean;
+  onLocationClick: (latlng: L.LatLng) => void;
+}) {
+  useMapEvents({
+    click: (e) => {
+      if (isAddingLocation) {
+        onLocationClick(e.latlng);
+      }
+    },
+  });
+  return null;
+}
+
 const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
   const [mapSettings, setMapSettings] = useState<MapSettings | null>(null);
   const [locations, setLocations] = useState<MapLocation[]>([]);
@@ -61,14 +90,13 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState<MapLocation | null>(null);
   const [isAddingLocation, setIsAddingLocation] = useState(false);
-  const [zoom, setZoom] = useState(2);
   const [newLocation, setNewLocation] = useState({
     name: '',
     description: '',
     location_type: '',
     icon_id: '',
-    x_coordinate: 50,
-    y_coordinate: 50
+    lat: 0,
+    lng: 0
   });
   const [newIcon, setNewIcon] = useState({
     name: '',
@@ -80,6 +108,8 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
   const [mapImageFile, setMapImageFile] = useState<File | null>(null);
   const [iconImageFile, setIconImageFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -112,7 +142,9 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
 
       if (settings) {
         setMapSettings(settings);
-        setZoom(settings.default_zoom || 2);
+        // Set map bounds based on settings or use default world bounds
+        const bounds = L.latLngBounds([[-85, -180], [85, 180]]);
+        setMapBounds(bounds);
       }
 
       // Load icons
@@ -127,7 +159,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
 
       setIcons(iconsData || []);
 
-      // Load locations with icons
+      // Load locations with icons - convert coordinates from percentage to lat/lng
       const { data: locationsData, error: locationsError } = await supabase
         .from('map_locations')
         .select(`
@@ -140,7 +172,14 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
         throw locationsError;
       }
 
-      setLocations(locationsData || []);
+      // Convert percentage coordinates to lat/lng for Leaflet
+      const convertedLocations = (locationsData || []).map(location => ({
+        ...location,
+        lat: (50 - location.y_coordinate) * 1.8, // Convert y% to latitude
+        lng: (location.x_coordinate - 50) * 3.6   // Convert x% to longitude
+      }));
+
+      setLocations(convertedLocations as any);
     } catch (error) {
       console.error('Error loading map data:', error);
       toast({
@@ -245,7 +284,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
           name: newIcon.name,
           tag_type: newIcon.tag_type,
           icon_file_path: filePath,
-          icon_url: '', // Keep empty for backward compatibility
+          icon_url: '',
           icon_size_width: newIcon.icon_size_width,
           icon_size_height: newIcon.icon_size_height
         });
@@ -279,19 +318,15 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     }
   };
 
-  const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleMapClick = (latlng: L.LatLng) => {
     if (!isAddingLocation) return;
     
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-    
-    console.log(`Clicked at: ${x.toFixed(2)}%, ${y.toFixed(2)}%`);
+    console.log(`Clicked at: ${latlng.lat}, ${latlng.lng}`);
     
     setNewLocation(prev => ({
       ...prev,
-      x_coordinate: Math.round(x * 100) / 100,
-      y_coordinate: Math.round(y * 100) / 100
+      lat: latlng.lat,
+      lng: latlng.lng
     }));
   };
 
@@ -306,6 +341,10 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     }
 
     try {
+      // Convert lat/lng back to percentage coordinates for storage
+      const x_coordinate = (newLocation.lng / 3.6) + 50;
+      const y_coordinate = 50 - (newLocation.lat / 1.8);
+
       const { error } = await supabase
         .from('map_locations')
         .insert({
@@ -313,8 +352,8 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
           description: newLocation.description || null,
           location_type: newLocation.location_type,
           icon_id: newLocation.icon_id || null,
-          x_coordinate: newLocation.x_coordinate,
-          y_coordinate: newLocation.y_coordinate,
+          x_coordinate: Math.max(0, Math.min(100, x_coordinate)),
+          y_coordinate: Math.max(0, Math.min(100, y_coordinate)),
           created_by: user?.id || ''
         });
 
@@ -331,8 +370,8 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
         description: '',
         location_type: '',
         icon_id: '',
-        x_coordinate: 50,
-        y_coordinate: 50
+        lat: 0,
+        lng: 0
       });
       
       await loadMapData();
@@ -412,6 +451,16 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     }
   };
 
+  const createCustomIcon = (icon: MapIcon) => {
+    const iconUrl = getImageUrl(icon.icon_file_path, icon.icon_url);
+    return L.icon({
+      iconUrl: iconUrl,
+      iconSize: [icon.icon_size_width, icon.icon_size_height],
+      iconAnchor: [icon.icon_size_width / 2, icon.icon_size_height],
+      popupAnchor: [0, -icon.icon_size_height],
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 flex items-center justify-center">
@@ -436,31 +485,14 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
               Back to Dashboard
             </Button>
             <div>
-              <h1 className="text-2xl font-bold">Admin Map Editor</h1>
+              <h1 className="text-2xl font-bold">Admin Map Editor (Leaflet)</h1>
               <p className="text-slate-100 text-sm">
-                Manage your campaign world map
+                Manage your campaign world map with Leaflet
               </p>
             </div>
           </div>
           
           <div className="flex items-center space-x-2">
-            <Button
-              onClick={() => setZoom(Math.max(mapSettings?.min_zoom || 1, zoom - 1))}
-              variant="outline"
-              className="border-slate-200 text-slate-100 hover:bg-slate-700"
-              disabled={zoom <= (mapSettings?.min_zoom || 1)}
-            >
-              -
-            </Button>
-            <span className="text-slate-100 px-3">Zoom: {zoom}</span>
-            <Button
-              onClick={() => setZoom(Math.min(mapSettings?.max_zoom || 18, zoom + 1))}
-              variant="outline"
-              className="border-slate-200 text-slate-100 hover:bg-slate-700"
-              disabled={zoom >= (mapSettings?.max_zoom || 18)}
-            >
-              +
-            </Button>
             <Button
               onClick={() => {
                 setIsAddingLocation(!isAddingLocation);
@@ -490,7 +522,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
               <CardHeader>
                 <CardTitle className="text-slate-900 flex items-center">
                   <MapPin className="h-5 w-5 mr-2" />
-                  World Map
+                  World Map (Leaflet)
                   {isAddingLocation && (
                     <span className="ml-4 text-sm bg-green-100 text-green-800 px-2 py-1 rounded">
                       Click to place new location
@@ -499,86 +531,86 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div 
-                  className="relative w-full h-[600px] bg-gradient-to-br from-blue-100 to-green-100 cursor-crosshair overflow-hidden border-2 border-slate-200 rounded-lg"
-                  onClick={handleMapClick}
-                  style={{
-                    backgroundImage: currentMapImageUrl ? `url(${currentMapImageUrl})` : undefined,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    backgroundRepeat: 'no-repeat',
-                    transform: `scale(${1 + (zoom - 2) * 0.2})`,
-                    transformOrigin: 'center center'
-                  }}
-                >
-                  {!currentMapImageUrl && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center text-gray-500">
-                        <Image className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                        <p className="text-lg font-medium">No Map Image</p>
-                        <p className="text-sm">Upload a map image using the controls on the right</p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Render existing locations */}
-                  {locations.map((location) => {
-                    const iconUrl = location.icon ? getImageUrl(location.icon.icon_file_path, location.icon.icon_url) : null;
-                    
-                    return (
-                      <div
-                        key={location.id}
-                        className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer hover:scale-110 transition-transform"
-                        style={{
-                          left: `${location.x_coordinate}%`,
-                          top: `${location.y_coordinate}%`,
-                          zIndex: selectedLocation?.id === location.id ? 20 : 10
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedLocation(location);
-                          setIsAddingLocation(false);
-                        }}
-                      >
-                        {iconUrl ? (
-                          <img
-                            src={iconUrl}
-                            alt={location.name}
-                            className="drop-shadow-lg"
-                            style={{
-                              width: `${location.icon?.icon_size_width || 25}px`,
-                              height: `${location.icon?.icon_size_height || 25}px`
-                            }}
-                          />
-                        ) : (
-                          <MapPin 
-                            className="h-6 w-6 text-red-600 drop-shadow-lg" 
-                            fill="currentColor"
-                          />
-                        )}
-                        
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                          {location.name}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  
-                  {/* New location preview */}
-                  {isAddingLocation && (
-                    <div
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-                      style={{
-                        left: `${newLocation.x_coordinate}%`,
-                        top: `${newLocation.y_coordinate}%`,
-                        zIndex: 25
-                      }}
+                <div className="h-[600px] rounded-lg overflow-hidden border-2 border-slate-200">
+                  {mapBounds && (
+                    <MapContainer
+                      center={[0, 0]}
+                      zoom={mapSettings?.default_zoom || 2}
+                      style={{ height: '100%', width: '100%' }}
+                      maxBounds={mapBounds}
+                      maxBoundsViscosity={1.0}
+                      ref={mapRef}
                     >
-                      <MapPin className="h-6 w-6 text-green-600 drop-shadow-lg animate-pulse" fill="currentColor" />
-                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-green-600 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                        New Location
-                      </div>
-                    </div>
+                      <TileLayer
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      />
+                      
+                      {/* Custom map image overlay if available */}
+                      {currentMapImageUrl && mapBounds && (
+                        <ImageOverlay
+                          url={currentMapImageUrl}
+                          bounds={mapBounds}
+                          opacity={0.8}
+                        />
+                      )}
+                      
+                      {/* Map click handler for adding locations */}
+                      <MapClickHandler 
+                        isAddingLocation={isAddingLocation}
+                        onLocationClick={handleMapClick}
+                      />
+                      
+                      {/* Render existing locations */}
+                      {locations.map((location) => {
+                        const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
+                        
+                        return (
+                          <Marker
+                            key={location.id}
+                            position={[(location as any).lat, (location as any).lng]}
+                            icon={customIcon}
+                            eventHandlers={{
+                              click: () => {
+                                setSelectedLocation(location);
+                                setIsAddingLocation(false);
+                              }
+                            }}
+                          >
+                            <Popup>
+                              <div className="p-2">
+                                <h3 className="font-bold text-lg">{location.name}</h3>
+                                <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
+                                {location.description && (
+                                  <p className="text-sm mb-3">{location.description}</p>
+                                )}
+                                <Button
+                                  onClick={() => handleDeleteLocation(location.id)}
+                                  variant="destructive"
+                                  size="sm"
+                                  className="w-full"
+                                >
+                                  <Trash2 className="h-3 w-3 mr-1" />
+                                  Delete
+                                </Button>
+                              </div>
+                            </Popup>
+                          </Marker>
+                        );
+                      })}
+                      
+                      {/* New location preview */}
+                      {isAddingLocation && newLocation.lat !== 0 && newLocation.lng !== 0 && (
+                        <Marker position={[newLocation.lat, newLocation.lng]}>
+                          <Popup>
+                            <div className="p-2">
+                              <h3 className="font-bold text-green-600">New Location</h3>
+                              <p className="text-sm">Click "Save Location" to add this marker</p>
+                            </div>
+                          </Popup>
+                        </Marker>
+                      )}
+                    </MapContainer>
                   )}
                 </div>
               </CardContent>
@@ -691,10 +723,10 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                       
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <Label>X: {newLocation.x_coordinate}%</Label>
+                          <Label>Lat: {newLocation.lat.toFixed(4)}</Label>
                         </div>
                         <div>
-                          <Label>Y: {newLocation.y_coordinate}%</Label>
+                          <Label>Lng: {newLocation.lng.toFixed(4)}</Label>
                         </div>
                       </div>
                       
@@ -721,10 +753,10 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <Label>X: {selectedLocation.x_coordinate}%</Label>
+                          <Label>Lat: {(selectedLocation as any).lat?.toFixed(4) || 'N/A'}</Label>
                         </div>
                         <div>
-                          <Label>Y: {selectedLocation.y_coordinate}%</Label>
+                          <Label>Lng: {(selectedLocation as any).lng?.toFixed(4) || 'N/A'}</Label>
                         </div>
                       </div>
                       <Button 

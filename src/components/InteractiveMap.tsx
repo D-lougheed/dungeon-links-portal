@@ -1,11 +1,22 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, ImageOverlay, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, MapPin, Settings } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+
+// Fix Leaflet default markers
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 interface InteractiveMapProps {
   onBack: () => void;
@@ -45,8 +56,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState<MapLocation | null>(null);
-  const [zoom, setZoom] = useState(2);
-  const [mapCenter, setMapCenter] = useState({ x: 50, y: 50 });
+  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -79,14 +90,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
       if (settings) {
         setMapSettings(settings);
-        setZoom(settings.default_zoom || 2);
-        setMapCenter({ 
-          x: settings.center_lng || 50, 
-          y: settings.center_lat || 50 
-        });
+        // Set map bounds based on settings or use default world bounds
+        const bounds = L.latLngBounds([[-85, -180], [85, 180]]);
+        setMapBounds(bounds);
       }
 
-      // Load locations with icons
+      // Load locations with icons - convert coordinates from percentage to lat/lng
       const { data: locationsData, error: locationsError } = await supabase
         .from('map_locations')
         .select(`
@@ -99,7 +108,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         throw locationsError;
       }
 
-      setLocations(locationsData || []);
+      // Convert percentage coordinates to lat/lng for Leaflet
+      const convertedLocations = (locationsData || []).map(location => ({
+        ...location,
+        lat: (50 - location.y_coordinate) * 1.8, // Convert y% to latitude
+        lng: (location.x_coordinate - 50) * 3.6   // Convert x% to longitude
+      }));
+
+      setLocations(convertedLocations as any);
     } catch (error) {
       console.error('Error loading map data:', error);
       toast({
@@ -116,13 +132,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     setSelectedLocation(location);
   };
 
-  const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-    
-    console.log(`Clicked at: ${x.toFixed(2)}%, ${y.toFixed(2)}%`);
-    setSelectedLocation(null);
+  const createCustomIcon = (icon: any) => {
+    const iconUrl = getImageUrl(icon.icon_file_path, icon.icon_url);
+    return L.icon({
+      iconUrl: iconUrl,
+      iconSize: [icon.icon_size_width, icon.icon_size_height],
+      iconAnchor: [icon.icon_size_width / 2, icon.icon_size_height],
+      popupAnchor: [0, -icon.icon_size_height],
+    });
   };
 
   if (isLoading) {
@@ -149,31 +166,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               Back to Dashboard
             </Button>
             <div>
-              <h1 className="text-2xl font-bold">Interactive World Map</h1>
+              <h1 className="text-2xl font-bold">Interactive World Map (Leaflet)</h1>
               <p className="text-amber-100 text-sm">
                 Explore the world of your campaign
               </p>
             </div>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <Button
-              onClick={() => setZoom(Math.max(mapSettings?.min_zoom || 1, zoom - 1))}
-              variant="outline"
-              className="border-amber-200 text-amber-100 hover:bg-amber-700"
-              disabled={zoom <= (mapSettings?.min_zoom || 1)}
-            >
-              -
-            </Button>
-            <span className="text-amber-100 px-3">Zoom: {zoom}</span>
-            <Button
-              onClick={() => setZoom(Math.min(mapSettings?.max_zoom || 18, zoom + 1))}
-              variant="outline"
-              className="border-amber-200 text-amber-100 hover:bg-amber-700"
-              disabled={zoom >= (mapSettings?.max_zoom || 18)}
-            >
-              +
-            </Button>
           </div>
         </div>
       </header>
@@ -184,92 +181,56 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           <div className="lg:col-span-3">
             <Card className="border-amber-200 bg-white shadow-lg">
               <CardContent className="p-0">
-                <div 
-                  className="relative w-full h-[600px] bg-gradient-to-br from-blue-100 to-green-100 cursor-crosshair overflow-hidden border-2 border-amber-200 rounded-lg"
-                  onClick={handleMapClick}
-                  style={{
-                    backgroundImage: currentMapImageUrl ? `url(${currentMapImageUrl})` : undefined,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    backgroundRepeat: 'no-repeat'
-                  }}
-                >
-                  {!currentMapImageUrl && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center text-gray-500">
-                        <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                        <p className="text-lg font-medium">No Map Uploaded</p>
-                        <p className="text-sm">Ask your DM to upload a map image</p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Render locations as markers */}
-                  {locations.map((location) => {
-                    const iconUrl = location.icon ? getImageUrl(location.icon.icon_file_path, location.icon.icon_url) : null;
-                    
-                    return (
-                      <div
-                        key={location.id}
-                        className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer hover:scale-110 transition-transform"
-                        style={{
-                          left: `${location.x_coordinate}%`,
-                          top: `${location.y_coordinate}%`,
-                          zIndex: selectedLocation?.id === location.id ? 20 : 10
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleLocationClick(location);
-                        }}
-                      >
-                        {iconUrl ? (
-                          <img
-                            src={iconUrl}
-                            alt={location.name}
-                            className="drop-shadow-lg"
-                            style={{
-                              width: `${location.icon?.icon_size_width || 25}px`,
-                              height: `${location.icon?.icon_size_height || 25}px`
-                            }}
-                          />
-                        ) : (
-                          <MapPin 
-                            className="h-6 w-6 text-red-600 drop-shadow-lg" 
-                            fill="currentColor"
-                          />
-                        )}
-                        
-                        {/* Location label */}
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                          {location.name}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  
-                  {/* Selected location popup */}
-                  {selectedLocation && (
-                    <div
-                      className="absolute bg-white border-2 border-amber-300 rounded-lg shadow-xl p-4 max-w-xs z-30"
-                      style={{
-                        left: `${Math.min(selectedLocation.x_coordinate + 2, 85)}%`,
-                        top: `${Math.max(selectedLocation.y_coordinate - 5, 5)}%`
-                      }}
+                <div className="h-[600px] rounded-lg overflow-hidden border-2 border-amber-200">
+                  {mapBounds && (
+                    <MapContainer
+                      center={[0, 0]}
+                      zoom={mapSettings?.default_zoom || 2}
+                      style={{ height: '100%', width: '100%' }}
+                      maxBounds={mapBounds}
+                      maxBoundsViscosity={1.0}
+                      ref={mapRef}
                     >
-                      <h3 className="font-bold text-amber-900 mb-2">{selectedLocation.name}</h3>
-                      <p className="text-sm text-gray-600 mb-2">Type: {selectedLocation.location_type}</p>
-                      {selectedLocation.description && (
-                        <p className="text-sm text-gray-700">{selectedLocation.description}</p>
+                      <TileLayer
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                      />
+                      
+                      {/* Custom map image overlay if available */}
+                      {currentMapImageUrl && mapBounds && (
+                        <ImageOverlay
+                          url={currentMapImageUrl}
+                          bounds={mapBounds}
+                          opacity={0.8}
+                        />
                       )}
-                      <Button
-                        onClick={() => setSelectedLocation(null)}
-                        variant="outline"
-                        size="sm"
-                        className="mt-2 w-full"
-                      >
-                        Close
-                      </Button>
-                    </div>
+                      
+                      {/* Render locations as markers */}
+                      {locations.map((location) => {
+                        const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
+                        
+                        return (
+                          <Marker
+                            key={location.id}
+                            position={[(location as any).lat, (location as any).lng]}
+                            icon={customIcon}
+                            eventHandlers={{
+                              click: () => handleLocationClick(location)
+                            }}
+                          >
+                            <Popup>
+                              <div className="p-2">
+                                <h3 className="font-bold text-amber-900 mb-2">{location.name}</h3>
+                                <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
+                                {location.description && (
+                                  <p className="text-sm text-gray-700">{location.description}</p>
+                                )}
+                              </div>
+                            </Popup>
+                          </Marker>
+                        );
+                      })}
+                    </MapContainer>
                   )}
                 </div>
               </CardContent>
@@ -350,13 +311,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                     <span className="font-medium">{locations.length}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Current Zoom:</span>
-                    <span className="font-medium">{zoom}</span>
+                    <span className="text-gray-600">Map Type:</span>
+                    <span className="font-medium">Leaflet</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Map Status:</span>
                     <span className="font-medium">
-                      {currentMapImageUrl ? 'Loaded' : 'No Image'}
+                      {currentMapImageUrl ? 'Custom Image Loaded' : 'OpenStreetMap'}
                     </span>
                   </div>
                 </div>
