@@ -12,6 +12,7 @@ export type Database = {
       map_icons: {
         Row: {
           created_at: string
+          icon_file_path: string | null
           icon_size_height: number | null
           icon_size_width: number | null
           icon_url: string
@@ -21,6 +22,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          icon_file_path?: string | null
           icon_size_height?: number | null
           icon_size_width?: number | null
           icon_url: string
@@ -30,6 +32,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          icon_file_path?: string | null
           icon_size_height?: number | null
           icon_size_width?: number | null
           icon_url?: string
@@ -96,6 +99,7 @@ export type Database = {
           created_at: string
           default_zoom: number | null
           id: string
+          map_image_path: string | null
           map_image_url: string | null
           max_zoom: number | null
           min_zoom: number | null
@@ -107,6 +111,7 @@ export type Database = {
           created_at?: string
           default_zoom?: number | null
           id?: string
+          map_image_path?: string | null
           map_image_url?: string | null
           max_zoom?: number | null
           min_zoom?: number | null
@@ -118,6 +123,7 @@ export type Database = {
           created_at?: string
           default_zoom?: number | null
           id?: string
+          map_image_path?: string | null
           map_image_url?: string | null
           max_zoom?: number | null
           min_zoom?: number | null

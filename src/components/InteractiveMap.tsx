@@ -23,6 +23,7 @@ interface MapLocation {
   icon?: {
     name: string;
     icon_url: string;
+    icon_file_path: string | null;
     icon_size_width: number;
     icon_size_height: number;
   };
@@ -31,6 +32,7 @@ interface MapLocation {
 interface MapSettings {
   id: string;
   map_image_url: string | null;
+  map_image_path: string | null;
   default_zoom: number;
   max_zoom: number;
   min_zoom: number;
@@ -51,6 +53,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   useEffect(() => {
     loadMapData();
   }, []);
+
+  const getImageUrl = (filePath: string | null, fallbackUrl: string | null) => {
+    if (filePath) {
+      const bucket = filePath.startsWith('map-images/') ? 'map-images' : 'map-icons';
+      const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      return data.publicUrl;
+    }
+    return fallbackUrl;
+  };
 
   const loadMapData = async () => {
     try {
@@ -80,7 +91,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         .from('map_locations')
         .select(`
           *,
-          icon:map_icons(name, icon_url, icon_size_width, icon_size_height)
+          icon:map_icons(name, icon_url, icon_file_path, icon_size_width, icon_size_height)
         `)
         .order('created_at', { ascending: false });
 
@@ -121,6 +132,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       </div>
     );
   }
+
+  const currentMapImageUrl = getImageUrl(mapSettings?.map_image_path, mapSettings?.map_image_url);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
@@ -175,13 +188,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   className="relative w-full h-[600px] bg-gradient-to-br from-blue-100 to-green-100 cursor-crosshair overflow-hidden border-2 border-amber-200 rounded-lg"
                   onClick={handleMapClick}
                   style={{
-                    backgroundImage: mapSettings?.map_image_url ? `url(${mapSettings.map_image_url})` : undefined,
+                    backgroundImage: currentMapImageUrl ? `url(${currentMapImageUrl})` : undefined,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                     backgroundRepeat: 'no-repeat'
                   }}
                 >
-                  {!mapSettings?.map_image_url && (
+                  {!currentMapImageUrl && (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="text-center text-gray-500">
                         <MapPin className="h-16 w-16 mx-auto mb-4 opacity-50" />
@@ -192,43 +205,47 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   )}
                   
                   {/* Render locations as markers */}
-                  {locations.map((location) => (
-                    <div
-                      key={location.id}
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer hover:scale-110 transition-transform"
-                      style={{
-                        left: `${location.x_coordinate}%`,
-                        top: `${location.y_coordinate}%`,
-                        zIndex: selectedLocation?.id === location.id ? 20 : 10
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleLocationClick(location);
-                      }}
-                    >
-                      {location.icon ? (
-                        <img
-                          src={location.icon.icon_url}
-                          alt={location.name}
-                          className="drop-shadow-lg"
-                          style={{
-                            width: `${location.icon.icon_size_width}px`,
-                            height: `${location.icon.icon_size_height}px`
-                          }}
-                        />
-                      ) : (
-                        <MapPin 
-                          className="h-6 w-6 text-red-600 drop-shadow-lg" 
-                          fill="currentColor"
-                        />
-                      )}
-                      
-                      {/* Location label */}
-                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                        {location.name}
+                  {locations.map((location) => {
+                    const iconUrl = location.icon ? getImageUrl(location.icon.icon_file_path, location.icon.icon_url) : null;
+                    
+                    return (
+                      <div
+                        key={location.id}
+                        className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer hover:scale-110 transition-transform"
+                        style={{
+                          left: `${location.x_coordinate}%`,
+                          top: `${location.y_coordinate}%`,
+                          zIndex: selectedLocation?.id === location.id ? 20 : 10
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleLocationClick(location);
+                        }}
+                      >
+                        {iconUrl ? (
+                          <img
+                            src={iconUrl}
+                            alt={location.name}
+                            className="drop-shadow-lg"
+                            style={{
+                              width: `${location.icon?.icon_size_width || 25}px`,
+                              height: `${location.icon?.icon_size_height || 25}px`
+                            }}
+                          />
+                        ) : (
+                          <MapPin 
+                            className="h-6 w-6 text-red-600 drop-shadow-lg" 
+                            fill="currentColor"
+                          />
+                        )}
+                        
+                        {/* Location label */}
+                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                          {location.name}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   
                   {/* Selected location popup */}
                   {selectedLocation && (
@@ -278,37 +295,41 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                       No locations have been added yet
                     </p>
                   ) : (
-                    locations.map((location) => (
-                      <div
-                        key={location.id}
-                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                          selectedLocation?.id === location.id 
-                            ? 'border-amber-300 bg-amber-50' 
-                            : 'border-gray-200 hover:border-amber-200 hover:bg-amber-25'
-                        }`}
-                        onClick={() => handleLocationClick(location)}
-                      >
-                        <div className="flex items-center space-x-2">
-                          {location.icon ? (
-                            <img
-                              src={location.icon.icon_url}
-                              alt={location.name}
-                              className="flex-shrink-0"
-                              style={{
-                                width: '20px',
-                                height: '20px'
-                              }}
-                            />
-                          ) : (
-                            <MapPin className="h-4 w-4 text-red-600 flex-shrink-0" />
-                          )}
-                          <div className="min-w-0">
-                            <p className="font-medium text-amber-900 truncate">{location.name}</p>
-                            <p className="text-xs text-gray-600">{location.location_type}</p>
+                    locations.map((location) => {
+                      const iconUrl = location.icon ? getImageUrl(location.icon.icon_file_path, location.icon.icon_url) : null;
+                      
+                      return (
+                        <div
+                          key={location.id}
+                          className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                            selectedLocation?.id === location.id 
+                              ? 'border-amber-300 bg-amber-50' 
+                              : 'border-gray-200 hover:border-amber-200 hover:bg-amber-25'
+                          }`}
+                          onClick={() => handleLocationClick(location)}
+                        >
+                          <div className="flex items-center space-x-2">
+                            {iconUrl ? (
+                              <img
+                                src={iconUrl}
+                                alt={location.name}
+                                className="flex-shrink-0"
+                                style={{
+                                  width: '20px',
+                                  height: '20px'
+                                }}
+                              />
+                            ) : (
+                              <MapPin className="h-4 w-4 text-red-600 flex-shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-medium text-amber-900 truncate">{location.name}</p>
+                              <p className="text-xs text-gray-600">{location.location_type}</p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </CardContent>
@@ -335,7 +356,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   <div className="flex justify-between">
                     <span className="text-gray-600">Map Status:</span>
                     <span className="font-medium">
-                      {mapSettings?.map_image_url ? 'Loaded' : 'No Image'}
+                      {currentMapImageUrl ? 'Loaded' : 'No Image'}
                     </span>
                   </div>
                 </div>

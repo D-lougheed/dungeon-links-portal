@@ -26,6 +26,7 @@ interface MapLocation {
   icon?: {
     name: string;
     icon_url: string;
+    icon_file_path: string | null;
     icon_size_width: number;
     icon_size_height: number;
   };
@@ -36,6 +37,7 @@ interface MapIcon {
   name: string;
   tag_type: string;
   icon_url: string;
+  icon_file_path: string | null;
   icon_size_width: number;
   icon_size_height: number;
 }
@@ -43,6 +45,7 @@ interface MapIcon {
 interface MapSettings {
   id: string;
   map_image_url: string | null;
+  map_image_path: string | null;
   default_zoom: number;
   max_zoom: number;
   min_zoom: number;
@@ -72,13 +75,24 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     icon_size_width: 25,
     icon_size_height: 25
   });
-  const [mapImageUrl, setMapImageUrl] = useState('');
+  const [mapImageFile, setMapImageFile] = useState<File | null>(null);
+  const [iconImageFile, setIconImageFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
   useEffect(() => {
     loadMapData();
   }, []);
+
+  const getImageUrl = (filePath: string | null, fallbackUrl: string | null) => {
+    if (filePath) {
+      const bucket = filePath.startsWith('map-images/') ? 'map-images' : 'map-icons';
+      const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      return data.publicUrl;
+    }
+    return fallbackUrl;
+  };
 
   const loadMapData = async () => {
     try {
@@ -96,7 +110,6 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
 
       if (settings) {
         setMapSettings(settings);
-        setMapImageUrl(settings.map_image_url || '');
       }
 
       // Load icons
@@ -116,7 +129,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
         .from('map_locations')
         .select(`
           *,
-          icon:map_icons(name, icon_url, icon_size_width, icon_size_height)
+          icon:map_icons(name, icon_url, icon_file_path, icon_size_width, icon_size_height)
         `)
         .order('created_at', { ascending: false });
 
@@ -134,6 +147,132 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const uploadFile = async (file: File, bucket: string, path: string) => {
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(path, file, {
+        upsert: true
+      });
+
+    if (error) {
+      throw error;
+    }
+
+    return path;
+  };
+
+  const handleMapImageUpload = async () => {
+    if (!mapImageFile) {
+      toast({
+        title: "No File Selected",
+        description: "Please select a map image to upload.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      
+      const fileExt = mapImageFile.name.split('.').pop();
+      const fileName = `map-${Date.now()}.${fileExt}`;
+      const filePath = `map-images/${fileName}`;
+
+      await uploadFile(mapImageFile, 'map-images', filePath);
+
+      if (mapSettings) {
+        const { error } = await supabase
+          .from('map_settings')
+          .update({ map_image_path: filePath })
+          .eq('id', mapSettings.id);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('map_settings')
+          .insert({ map_image_path: filePath });
+
+        if (error) throw error;
+      }
+
+      toast({
+        title: "Map Image Uploaded",
+        description: "The map image has been successfully uploaded.",
+      });
+
+      setMapImageFile(null);
+      await loadMapData();
+    } catch (error) {
+      console.error('Error uploading map image:', error);
+      toast({
+        title: "Upload Failed",
+        description: "There was an error uploading the map image. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleIconUpload = async () => {
+    if (!iconImageFile || !newIcon.name || !newIcon.tag_type) {
+      toast({
+        title: "Missing Information",
+        description: "Please provide name, tag type, and select an icon file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      
+      const fileExt = iconImageFile.name.split('.').pop();
+      const fileName = `icon-${Date.now()}.${fileExt}`;
+      const filePath = `map-icons/${fileName}`;
+
+      await uploadFile(iconImageFile, 'map-icons', filePath);
+
+      const { error } = await supabase
+        .from('map_icons')
+        .insert({
+          name: newIcon.name,
+          tag_type: newIcon.tag_type,
+          icon_file_path: filePath,
+          icon_url: '', // Keep empty for backward compatibility
+          icon_size_width: newIcon.icon_size_width,
+          icon_size_height: newIcon.icon_size_height
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Icon Uploaded",
+        description: "The custom icon has been successfully uploaded.",
+      });
+
+      setNewIcon({
+        name: '',
+        tag_type: '',
+        icon_url: '',
+        icon_size_width: 25,
+        icon_size_height: 25
+      });
+      setIconImageFile(null);
+      
+      await loadMapData();
+    } catch (error) {
+      console.error('Error uploading icon:', error);
+      toast({
+        title: "Upload Failed",
+        description: "There was an error uploading the icon. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -230,80 +369,6 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     }
   };
 
-  const handleSaveIcon = async () => {
-    if (!newIcon.name || !newIcon.tag_type || !newIcon.icon_url) {
-      toast({
-        title: "Missing Information",
-        description: "Please provide name, tag type, and icon URL.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('map_icons')
-        .insert(newIcon);
-
-      if (error) throw error;
-
-      toast({
-        title: "Icon Added",
-        description: "The new icon has been successfully added.",
-      });
-
-      setNewIcon({
-        name: '',
-        tag_type: '',
-        icon_url: '',
-        icon_size_width: 25,
-        icon_size_height: 25
-      });
-      
-      await loadMapData();
-    } catch (error) {
-      console.error('Error saving icon:', error);
-      toast({
-        title: "Save Failed",
-        description: "There was an error saving the icon. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUpdateMapImage = async () => {
-    try {
-      if (mapSettings) {
-        const { error } = await supabase
-          .from('map_settings')
-          .update({ map_image_url: mapImageUrl || null })
-          .eq('id', mapSettings.id);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('map_settings')
-          .insert({ map_image_url: mapImageUrl || null });
-
-        if (error) throw error;
-      }
-
-      toast({
-        title: "Map Updated",
-        description: "The map image has been successfully updated.",
-      });
-
-      await loadMapData();
-    } catch (error) {
-      console.error('Error updating map:', error);
-      toast({
-        title: "Update Failed",
-        description: "There was an error updating the map image. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
   const handleClearMap = async () => {
     if (!confirm('Are you sure you want to clear the entire map? This will remove all locations and reset the map image.')) return;
 
@@ -320,7 +385,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
       if (mapSettings) {
         const { error: mapError } = await supabase
           .from('map_settings')
-          .update({ map_image_url: null })
+          .update({ map_image_url: null, map_image_path: null })
           .eq('id', mapSettings.id);
 
         if (mapError) throw mapError;
@@ -331,7 +396,6 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
         description: "All locations and map image have been removed.",
       });
 
-      setMapImageUrl('');
       await loadMapData();
     } catch (error) {
       console.error('Error clearing map:', error);
@@ -350,6 +414,8 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
       </div>
     );
   }
+
+  const currentMapImageUrl = getImageUrl(mapSettings?.map_image_path, mapSettings?.map_image_url);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100">
@@ -415,13 +481,13 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                   className="relative w-full h-[600px] bg-gradient-to-br from-blue-100 to-green-100 cursor-crosshair overflow-hidden border-2 border-slate-200 rounded-lg"
                   onClick={handleMapClick}
                   style={{
-                    backgroundImage: mapSettings?.map_image_url ? `url(${mapSettings.map_image_url})` : undefined,
+                    backgroundImage: currentMapImageUrl ? `url(${currentMapImageUrl})` : undefined,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                     backgroundRepeat: 'no-repeat'
                   }}
                 >
-                  {!mapSettings?.map_image_url && (
+                  {!currentMapImageUrl && (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="text-center text-gray-500">
                         <Image className="h-16 w-16 mx-auto mb-4 opacity-50" />
@@ -432,43 +498,47 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                   )}
                   
                   {/* Render existing locations */}
-                  {locations.map((location) => (
-                    <div
-                      key={location.id}
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer hover:scale-110 transition-transform"
-                      style={{
-                        left: `${location.x_coordinate}%`,
-                        top: `${location.y_coordinate}%`,
-                        zIndex: selectedLocation?.id === location.id ? 20 : 10
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedLocation(location);
-                        setIsAddingLocation(false);
-                      }}
-                    >
-                      {location.icon ? (
-                        <img
-                          src={location.icon.icon_url}
-                          alt={location.name}
-                          className="drop-shadow-lg"
-                          style={{
-                            width: `${location.icon.icon_size_width}px`,
-                            height: `${location.icon.icon_size_height}px`
-                          }}
-                        />
-                      ) : (
-                        <MapPin 
-                          className="h-6 w-6 text-red-600 drop-shadow-lg" 
-                          fill="currentColor"
-                        />
-                      )}
-                      
-                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                        {location.name}
+                  {locations.map((location) => {
+                    const iconUrl = location.icon ? getImageUrl(location.icon.icon_file_path, location.icon.icon_url) : null;
+                    
+                    return (
+                      <div
+                        key={location.id}
+                        className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer hover:scale-110 transition-transform"
+                        style={{
+                          left: `${location.x_coordinate}%`,
+                          top: `${location.y_coordinate}%`,
+                          zIndex: selectedLocation?.id === location.id ? 20 : 10
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedLocation(location);
+                          setIsAddingLocation(false);
+                        }}
+                      >
+                        {iconUrl ? (
+                          <img
+                            src={iconUrl}
+                            alt={location.name}
+                            className="drop-shadow-lg"
+                            style={{
+                              width: `${location.icon?.icon_size_width || 25}px`,
+                              height: `${location.icon?.icon_size_height || 25}px`
+                            }}
+                          />
+                        ) : (
+                          <MapPin 
+                            className="h-6 w-6 text-red-600 drop-shadow-lg" 
+                            fill="currentColor"
+                          />
+                        )}
+                        
+                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                          {location.name}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   
                   {/* New location preview */}
                   {isAddingLocation && (
@@ -503,20 +573,22 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <Label htmlFor="mapImage">Map Image URL</Label>
+                  <Label htmlFor="mapImageFile">Upload Map Image</Label>
                   <Input
-                    id="mapImage"
-                    value={mapImageUrl}
-                    onChange={(e) => setMapImageUrl(e.target.value)}
-                    placeholder="https://example.com/map.jpg"
+                    id="mapImageFile"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setMapImageFile(e.target.files?.[0] || null)}
+                    className="mt-1"
                   />
                   <Button
-                    onClick={handleUpdateMapImage}
+                    onClick={handleMapImageUpload}
+                    disabled={!mapImageFile || isUploading}
                     className="w-full mt-2"
                     size="sm"
                   >
                     <Upload className="h-4 w-4 mr-2" />
-                    Update Map
+                    {isUploading ? 'Uploading...' : 'Upload Map'}
                   </Button>
                 </div>
                 
@@ -648,8 +720,8 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
             {/* Add Custom Icon */}
             <Card className="border-slate-200 bg-white shadow-lg">
               <CardHeader>
-                <CardTitle className="text-slate-900">Add Custom Icon</CardTitle>
-                <CardDescription>Create custom markers for different location types</CardDescription>
+                <CardTitle className="text-slate-900">Upload Custom Icon</CardTitle>
+                <CardDescription>Upload custom markers for different location types</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
@@ -673,12 +745,12 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                 </div>
                 
                 <div>
-                  <Label htmlFor="iconUrl">Icon URL</Label>
+                  <Label htmlFor="iconFile">Icon File</Label>
                   <Input
-                    id="iconUrl"
-                    value={newIcon.icon_url}
-                    onChange={(e) => setNewIcon(prev => ({ ...prev, icon_url: e.target.value }))}
-                    placeholder="https://example.com/icon.png"
+                    id="iconFile"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setIconImageFile(e.target.files?.[0] || null)}
                   />
                 </div>
                 
@@ -703,9 +775,13 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                   </div>
                 </div>
                 
-                <Button onClick={handleSaveIcon} className="w-full">
+                <Button 
+                  onClick={handleIconUpload} 
+                  disabled={isUploading}
+                  className="w-full"
+                >
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Icon
+                  {isUploading ? 'Uploading...' : 'Upload Icon'}
                 </Button>
               </CardContent>
             </Card>
@@ -718,23 +794,27 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {icons.map((icon) => (
-                      <div key={icon.id} className="flex items-center space-x-2 p-2 border rounded">
-                        <img
-                          src={icon.icon_url}
-                          alt={icon.name}
-                          style={{
-                            width: '20px',
-                            height: '20px'
-                          }}
-                          className="flex-shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{icon.name}</p>
-                          <p className="text-xs text-gray-600">{icon.tag_type}</p>
+                    {icons.map((icon) => {
+                      const iconUrl = getImageUrl(icon.icon_file_path, icon.icon_url);
+                      
+                      return (
+                        <div key={icon.id} className="flex items-center space-x-2 p-2 border rounded">
+                          <img
+                            src={iconUrl}
+                            alt={icon.name}
+                            style={{
+                              width: '20px',
+                              height: '20px'
+                            }}
+                            className="flex-shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{icon.name}</p>
+                            <p className="text-xs text-gray-600">{icon.tag_type}</p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
