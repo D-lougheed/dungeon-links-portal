@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -60,6 +61,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState<MapLocation | null>(null);
   const [isAddingLocation, setIsAddingLocation] = useState(false);
+  const [zoom, setZoom] = useState(2);
   const [newLocation, setNewLocation] = useState({
     name: '',
     description: '',
@@ -110,6 +112,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
 
       if (settings) {
         setMapSettings(settings);
+        setZoom(settings.default_zoom || 2);
       }
 
       // Load icons
@@ -283,6 +286,8 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
     const x = ((event.clientX - rect.left) / rect.width) * 100;
     const y = ((event.clientY - rect.top) / rect.height) * 100;
     
+    console.log(`Clicked at: ${x.toFixed(2)}%, ${y.toFixed(2)}%`);
+    
     setNewLocation(prev => ({
       ...prev,
       x_coordinate: Math.round(x * 100) / 100,
@@ -440,6 +445,23 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
           
           <div className="flex items-center space-x-2">
             <Button
+              onClick={() => setZoom(Math.max(mapSettings?.min_zoom || 1, zoom - 1))}
+              variant="outline"
+              className="border-slate-200 text-slate-100 hover:bg-slate-700"
+              disabled={zoom <= (mapSettings?.min_zoom || 1)}
+            >
+              -
+            </Button>
+            <span className="text-slate-100 px-3">Zoom: {zoom}</span>
+            <Button
+              onClick={() => setZoom(Math.min(mapSettings?.max_zoom || 18, zoom + 1))}
+              variant="outline"
+              className="border-slate-200 text-slate-100 hover:bg-slate-700"
+              disabled={zoom >= (mapSettings?.max_zoom || 18)}
+            >
+              +
+            </Button>
+            <Button
               onClick={() => {
                 setIsAddingLocation(!isAddingLocation);
                 setSelectedLocation(null);
@@ -484,7 +506,9 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                     backgroundImage: currentMapImageUrl ? `url(${currentMapImageUrl})` : undefined,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
-                    backgroundRepeat: 'no-repeat'
+                    backgroundRepeat: 'no-repeat',
+                    transform: `scale(${1 + (zoom - 2) * 0.2})`,
+                    transformOrigin: 'center center'
                   }}
                 >
                   {!currentMapImageUrl && (
