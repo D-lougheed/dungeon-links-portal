@@ -1,257 +1,237 @@
-import React from 'react';
-import { useAuth } from '../contexts/AuthContext';
+
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
-  LogOut, 
-  Users, 
-  Map, 
-  BookOpen, 
-  Dice6, 
-  Scroll,
-  Sword,
-  Crown,
-  Compass,
-  Bot,
-  Sparkles,
-  Settings,
-  User
-} from 'lucide-react';
-import { useState } from 'react';
+import { LogOut, Bot, Settings, Map, Shield, Users, Globe } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import AIWorldAssistant from './AIWorldAssistant';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
 import AdminTools from './AdminTools';
 import InteractiveMap from './InteractiveMap';
+import AdminMap from './AdminMap';
 
 const Dashboard = () => {
-  const { signOut, user, userRole } = useAuth();
-  const [activeFeature, setActiveFeature] = useState<string | null>(null);
+  const { user, userRole, signOut } = useAuth();
+  const [currentView, setCurrentView] = useState<'dashboard' | 'world-ai' | 'general-ai' | 'slumbering-ai' | 'admin' | 'map' | 'admin-map'>('dashboard');
 
-  const features = [
-    {
-      id: "admin-tools",
-      title: "Admin Tools",
-      description: "Wiki scraping, database management, and AI configuration",
-      icon: Settings,
-      status: "Available",
-      dmOnly: true
-    },
-    {
-      id: "interactive-map",
-      title: "Interactive World Map",
-      description: "View and manage campaign world locations with an interactive map",
-      icon: Map,
-      status: "Available",
-      dmOnly: false
-    },
-    {
-      id: "general-ai-assistant",
-      title: "General AI Assistant",
-      description: "Get AI help with world building, NPCs, and campaign ideas",
-      icon: Bot,
-      status: "Available",
-      dmOnly: false
-    },
-    {
-      id: "slumbering-ancients-ai",
-      title: "Slumbering Ancients AI Assistant",
-      description: "Specialized AI assistant for ancient lore and mysteries",
-      icon: Sparkles,
-      status: "Available",
-      dmOnly: false
-    },
-    {
-      id: "character-management",
-      title: "Character Management",
-      description: "Track player characters, stats, and progression",
-      icon: Users,
-      status: "Coming Soon",
-      dmOnly: false
-    },
-    {
-      id: "campaign-notes",
-      title: "Campaign Notes",
-      description: "Session notes, plot hooks, and story tracking",
-      icon: BookOpen,
-      status: "Coming Soon",
-      dmOnly: true
-    },
-    {
-      id: "npcs-factions",
-      title: "NPCs & Factions",
-      description: "Non-player characters and faction relationships",
-      icon: Crown,
-      status: "Coming Soon",
-      dmOnly: true
-    },
-    {
-      id: "items-equipment",
-      title: "Items & Equipment",
-      description: "Magic items, weapons, and treasure tracking",
-      icon: Sword,
-      status: "Coming Soon",
-      dmOnly: false
-    },
-    {
-      id: "quick-references",
-      title: "Quick References",
-      description: "Rules, tables, and useful D&D references",
-      icon: Scroll,
-      status: "Coming Soon",
-      dmOnly: false
-    },
-    {
-      id: "dice-roller",
-      title: "Dice Roller",
-      description: "Digital dice for quick rolls during sessions",
-      icon: Dice6,
-      status: "Coming Soon",
-      dmOnly: false
-    },
-    {
-      id: "quest-tracker",
-      title: "Quest Tracker",
-      description: "Active quests, objectives, and rewards",
-      icon: Compass,
-      status: "Coming Soon",
-      dmOnly: false
-    }
-  ];
-
-  // Filter features based on user role
-  const availableFeatures = features.filter(feature => 
-    !feature.dmOnly || userRole === 'dm'
-  );
-
-  const handleFeatureClick = (featureId: string, status: string) => {
-    if (status === "Available") {
-      setActiveFeature(featureId);
-    }
+  const handleSignOut = async () => {
+    await signOut();
   };
 
-  if (activeFeature === "admin-tools") {
-    return <AdminTools onBack={() => setActiveFeature(null)} />;
+  // Render different views based on current selection
+  if (currentView === 'world-ai') {
+    return <AIWorldAssistant onBack={() => setCurrentView('dashboard')} />;
   }
 
-  if (activeFeature === "interactive-map") {
-    return <InteractiveMap onBack={() => setActiveFeature(null)} />;
+  if (currentView === 'general-ai') {
+    return <GeneralAIAssistant onBack={() => setCurrentView('dashboard')} />;
   }
 
-  if (activeFeature === "general-ai-assistant") {
-    return <GeneralAIAssistant onBack={() => setActiveFeature(null)} />;
+  if (currentView === 'slumbering-ai') {
+    return <SlumberingAncientsAI onBack={() => setCurrentView('dashboard')} />;
   }
 
-  if (activeFeature === "slumbering-ancients-ai") {
-    return <SlumberingAncientsAI onBack={() => setActiveFeature(null)} />;
+  if (currentView === 'admin') {
+    return <AdminTools onBack={() => setCurrentView('dashboard')} />;
+  }
+
+  if (currentView === 'map') {
+    return <InteractiveMap onBack={() => setCurrentView('dashboard')} />;
+  }
+
+  if (currentView === 'admin-map') {
+    return <AdminMap onBack={() => setCurrentView('dashboard')} />;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
-      <header className="bg-gradient-to-r from-amber-800 to-orange-800 text-white shadow-lg">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 relative overflow-hidden">
+      {/* Parchment texture overlay */}
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23D4A574%22%20fill-opacity%3D%220.08%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%222%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-70"></div>
+      
+      {/* Parchment aging spots */}
+      <div className="absolute inset-0">
+        <div className="absolute top-1/4 left-1/4 w-8 h-8 bg-amber-200 rounded-full opacity-20 blur-sm"></div>
+        <div className="absolute top-1/3 right-1/3 w-4 h-4 bg-yellow-300 rounded-full opacity-15 blur-sm"></div>
+        <div className="absolute bottom-1/4 left-1/3 w-6 h-6 bg-amber-300 rounded-full opacity-25 blur-sm"></div>
+        <div className="absolute top-1/2 right-1/4 w-3 h-3 bg-yellow-200 rounded-full opacity-20 blur-sm"></div>
+        <div className="absolute bottom-1/3 right-1/2 w-5 h-5 bg-amber-200 rounded-full opacity-15 blur-sm"></div>
+      </div>
+
+      <header className="relative z-10 bg-gradient-to-r from-amber-800 to-orange-800 text-white shadow-lg">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <div className="relative">
-              <Scroll className="h-8 w-8" />
-              <Dice6 className="h-4 w-4 absolute -top-1 -right-1" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">D&D Campaign Portal</h1>
-              <p className="text-amber-100 text-sm">Adventure Management Hub</p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold">D&D Campaign Dashboard</h1>
+            <p className="text-amber-100 text-sm">
+              Welcome back, {user?.email} {userRole && `(${userRole})`}
+            </p>
           </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 bg-amber-700 px-3 py-1 rounded-full">
-              <User className="h-4 w-4" />
-              <span className="text-sm">
-                {userRole === 'dm' ? 'Dungeon Master' : 'Player'}
-              </span>
-            </div>
-            <Button 
-              onClick={signOut}
-              variant="outline"
-              className="border-amber-200 text-amber-100 hover:bg-amber-700 hover:text-white"
-            >
-              <LogOut className="h-4 w-4 mr-2" />
-              Logout
-            </Button>
-          </div>
+          <Button 
+            onClick={handleSignOut}
+            variant="outline"
+            className="border-amber-200 text-amber-100 hover:bg-amber-700 hover:text-white"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Sign Out
+          </Button>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-amber-900 mb-2">
-            Welcome, {userRole === 'dm' ? 'Dungeon Master' : 'Adventurer'}!
-          </h2>
-          <p className="text-amber-700">
-            {user?.email && `Signed in as ${user.email} • `}
-            Your campaign management tools are ready. Select a feature below to get started.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {availableFeatures.map((feature, index) => {
-            const IconComponent = feature.icon;
-            const isAvailable = feature.status === "Available";
-            return (
-              <Card 
-                key={index} 
-                className={`border-2 border-amber-200 hover:border-amber-400 transition-all duration-200 hover:shadow-lg bg-gradient-to-br from-white to-amber-50 group ${
-                  isAvailable ? 'cursor-pointer' : 'cursor-default'
-                }`}
-                onClick={() => handleFeatureClick(feature.id, feature.status)}
+      <main className="relative z-10 container mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* AI Assistants Section */}
+          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
+            <CardHeader>
+              <CardTitle className="text-amber-900 flex items-center">
+                <Bot className="h-5 w-5 mr-2" />
+                World Knowledge AI
+              </CardTitle>
+              <CardDescription>
+                Ask questions about your campaign world using your uploaded documents
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => setCurrentView('world-ai')}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white"
               >
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <IconComponent className={`h-8 w-8 ${
-                      isAvailable 
-                        ? 'text-amber-700 group-hover:text-amber-800' 
-                        : 'text-amber-600'
-                    } transition-colors`} />
-                    <div className="flex flex-col items-end gap-1">
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        isAvailable 
-                          ? 'text-green-700 bg-green-100' 
-                          : 'text-amber-600 bg-amber-100'
-                      }`}>
-                        {feature.status}
-                      </span>
-                      {feature.dmOnly && (
-                        <span className="text-xs px-2 py-1 rounded-full text-purple-700 bg-purple-100">
-                          DM Only
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <CardTitle className={`text-lg ${
-                    isAvailable 
-                      ? 'text-amber-900 group-hover:text-amber-800' 
-                      : 'text-amber-900'
-                  } transition-colors`}>
-                    {feature.title}
+                Open World Assistant
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
+            <CardHeader>
+              <CardTitle className="text-amber-900 flex items-center">
+                <Bot className="h-5 w-5 mr-2" />
+                General AI Assistant
+              </CardTitle>
+              <CardDescription>
+                Get help with general D&D questions, rules, and campaign ideas
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => setCurrentView('general-ai')}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Open General Assistant
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
+            <CardHeader>
+              <CardTitle className="text-amber-900 flex items-center">
+                <Bot className="h-5 w-5 mr-2" />
+                Slumbering Ancients AI
+              </CardTitle>
+              <CardDescription>
+                Specialized assistant for Slumbering Ancients campaign knowledge
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => setCurrentView('slumbering-ai')}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                Open Slumbering Assistant
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Map Section */}
+          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
+            <CardHeader>
+              <CardTitle className="text-amber-900 flex items-center">
+                <Map className="h-5 w-5 mr-2" />
+                Interactive World Map
+              </CardTitle>
+              <CardDescription>
+                Explore your campaign world with an interactive map
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => setCurrentView('map')}
+                className="w-full bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Globe className="h-4 w-4 mr-2" />
+                View World Map
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Admin/DM Only Sections */}
+          {userRole === 'dm' && (
+            <>
+              <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
+                <CardHeader>
+                  <CardTitle className="text-amber-900 flex items-center">
+                    <Map className="h-5 w-5 mr-2" />
+                    Map Editor
                   </CardTitle>
+                  <CardDescription>
+                    Admin interface to manage the world map, locations, and custom icons
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <CardDescription className="text-amber-700">
-                    {feature.description}
-                  </CardDescription>
+                  <Button 
+                    onClick={() => setCurrentView('admin-map')}
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                  >
+                    <Settings className="h-4 w-4 mr-2" />
+                    Edit World Map
+                  </Button>
                 </CardContent>
               </Card>
-            );
-          })}
-        </div>
 
-        <div className="mt-12 text-center">
-          <Card className="bg-gradient-to-r from-amber-100 to-orange-100 border-amber-300">
-            <CardContent className="pt-6">
-              <h3 className="text-xl font-semibold text-amber-900 mb-2">
-                Ready to Begin Your Adventure?
-              </h3>
-              <p className="text-amber-700">
-                {userRole === 'dm' 
-                  ? 'As a Dungeon Master, you have access to all campaign management tools.'
-                  : 'As a Player, you can access character management and collaborative features.'}
-              </p>
+              <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
+                <CardHeader>
+                  <CardTitle className="text-amber-900 flex items-center">
+                    <Settings className="h-5 w-5 mr-2" />
+                    Admin Tools
+                  </CardTitle>
+                  <CardDescription>
+                    Manage Google Drive scraping and AI configuration
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button 
+                    onClick={() => setCurrentView('admin')}
+                    className="w-full bg-slate-600 hover:bg-slate-700 text-white"
+                  >
+                    <Shield className="h-4 w-4 mr-2" />
+                    Open Admin Panel
+                  </Button>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* Role Display Card */}
+          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg">
+            <CardHeader>
+              <CardTitle className="text-amber-900 flex items-center">
+                <Users className="h-5 w-5 mr-2" />
+                Your Role
+              </CardTitle>
+              <CardDescription>
+                Current access level and permissions
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-amber-800 mb-2">
+                  {userRole === 'dm' ? 'Dungeon Master' : 'Player'}
+                </div>
+                <p className="text-sm text-amber-600">
+                  {userRole === 'dm' 
+                    ? 'You have full access to all features including admin tools and map editing' 
+                    : 'You can access AI assistants and view the world map'
+                  }
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>

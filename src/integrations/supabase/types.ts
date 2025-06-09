@@ -9,39 +9,119 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      map_icons: {
+        Row: {
+          created_at: string
+          icon_size_height: number | null
+          icon_size_width: number | null
+          icon_url: string
+          id: string
+          name: string
+          tag_type: string
+        }
+        Insert: {
+          created_at?: string
+          icon_size_height?: number | null
+          icon_size_width?: number | null
+          icon_url: string
+          id?: string
+          name: string
+          tag_type: string
+        }
+        Update: {
+          created_at?: string
+          icon_size_height?: number | null
+          icon_size_width?: number | null
+          icon_url?: string
+          id?: string
+          name?: string
+          tag_type?: string
+        }
+        Relationships: []
+      }
       map_locations: {
         Row: {
           created_at: string
           created_by: string
           description: string | null
+          icon_id: string | null
           id: string
           location_type: string
           name: string
           updated_at: string
           x_coordinate: number
           y_coordinate: number
+          zoom_level: number | null
         }
         Insert: {
           created_at?: string
           created_by: string
           description?: string | null
+          icon_id?: string | null
           id?: string
           location_type: string
           name: string
           updated_at?: string
           x_coordinate: number
           y_coordinate: number
+          zoom_level?: number | null
         }
         Update: {
           created_at?: string
           created_by?: string
           description?: string | null
+          icon_id?: string | null
           id?: string
           location_type?: string
           name?: string
           updated_at?: string
           x_coordinate?: number
           y_coordinate?: number
+          zoom_level?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "map_locations_icon_id_fkey"
+            columns: ["icon_id"]
+            isOneToOne: false
+            referencedRelation: "map_icons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      map_settings: {
+        Row: {
+          center_lat: number | null
+          center_lng: number | null
+          created_at: string
+          default_zoom: number | null
+          id: string
+          map_image_url: string | null
+          max_zoom: number | null
+          min_zoom: number | null
+          updated_at: string
+        }
+        Insert: {
+          center_lat?: number | null
+          center_lng?: number | null
+          created_at?: string
+          default_zoom?: number | null
+          id?: string
+          map_image_url?: string | null
+          max_zoom?: number | null
+          min_zoom?: number | null
+          updated_at?: string
+        }
+        Update: {
+          center_lat?: number | null
+          center_lng?: number | null
+          created_at?: string
+          default_zoom?: number | null
+          id?: string
+          map_image_url?: string | null
+          max_zoom?: number | null
+          min_zoom?: number | null
+          updated_at?: string
         }
         Relationships: []
       }
