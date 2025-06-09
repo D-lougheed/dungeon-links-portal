@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import { MapContainer, ImageOverlay, Marker, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,6 +40,9 @@ const LOCATION_TYPES = [
   { value: 'port', label: 'Port', color: '#DDA0DD' },
   { value: 'custom', label: 'Custom', color: '#A0A0A0' }
 ];
+
+// Define the image bounds
+const imageBounds: [[number, number], [number, number]] = [[-100, -100], [100, 100]];
 
 // Separate component for handling map clicks
 const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void, isDM: boolean }> = ({ onMapClick, isDM }) => {
@@ -300,14 +303,18 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               <CardContent className="p-0 h-full">
                 <MapContainer
                   center={[0, 0]}
-                  zoom={2}
+                  zoom={1}
                   className="h-full w-full rounded-lg"
                   crs={L.CRS.Simple}
-                  minZoom={-2}
-                  maxZoom={4}
+                  minZoom={-1}
+                  maxZoom={3}
+                  bounds={imageBounds}
+                  maxBounds={imageBounds}
+                  maxBoundsViscosity={1.0}
                 >
-                  <TileLayer
+                  <ImageOverlay
                     url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
+                    bounds={imageBounds}
                   />
                   <MapClickHandler onMapClick={handleMapClick} isDM={isDM} />
                   <MapMarkers
