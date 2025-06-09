@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,12 +49,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [showControlPanel, setShowControlPanel] = useState(true);
   
   // Enhanced zoom and pan state
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(0.5); // Start at 50% to fit most screens
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  const [naturalDimensions, setNaturalDimensions] = useState({ width: 8192, height: 4532 });
   
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -73,12 +74,35 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   // Handle image load to get natural dimensions
   const handleImageLoad = () => {
     if (imageRef.current) {
-      setImageDimensions({
-        width: imageRef.current.naturalWidth,
-        height: imageRef.current.naturalHeight
+      const naturalWidth = imageRef.current.naturalWidth;
+      const naturalHeight = imageRef.current.naturalHeight;
+      
+      setNaturalDimensions({
+        width: naturalWidth,
+        height: naturalHeight
       });
       setImageLoaded(true);
-      console.log('Image loaded with dimensions:', imageRef.current.naturalWidth, 'x', imageRef.current.naturalHeight);
+      
+      console.log('Image loaded with natural dimensions:', naturalWidth, 'x', naturalHeight);
+      
+      // Set initial zoom to fit the container while maintaining aspect ratio
+      if (mapContainerRef.current) {
+        const container = mapContainerRef.current;
+        const containerAspect = container.clientWidth / container.clientHeight;
+        const imageAspect = naturalWidth / naturalHeight;
+        
+        let initialZoom;
+        if (containerAspect > imageAspect) {
+          // Container is wider - fit to height
+          initialZoom = container.clientHeight / naturalHeight;
+        } else {
+          // Container is taller - fit to width
+          initialZoom = container.clientWidth / naturalWidth;
+        }
+        
+        // Scale it down a bit so there's some margin
+        setZoom(Math.min(initialZoom * 0.9, 0.5));
+      }
     }
   };
 
@@ -97,51 +121,39 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  const getImageDimensions = () => {
-    if (!mapContainerRef.current || !imageLoaded) return { width: 8192, height: 4532 };
-    
-    const container = mapContainerRef.current;
-    const containerAspect = container.clientWidth / container.clientHeight;
-    const imageAspect = imageDimensions.width / imageDimensions.height;
-    
-    let displayWidth, displayHeight;
-    
-    if (containerAspect > imageAspect) {
-      // Container is wider than image aspect ratio
-      displayHeight = container.clientHeight;
-      displayWidth = displayHeight * imageAspect;
-    } else {
-      // Container is taller than image aspect ratio
-      displayWidth = container.clientWidth;
-      displayHeight = displayWidth / imageAspect;
-    }
-    
-    return { width: displayWidth, height: displayHeight };
-  };
-
   const handleMapClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!isAddingMarker || userRole !== 'dm' || isDragging) return;
 
-    const { width, height } = getImageDimensions();
     const rect = mapContainerRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect || !imageRef.current) return;
 
+    // Get the current displayed size of the image
+    const displayedWidth = naturalDimensions.width * zoom;
+    const displayedHeight = naturalDimensions.height * zoom;
+    
     // Calculate the image position within the container
     const containerCenterX = rect.width / 2;
     const containerCenterY = rect.height / 2;
     const imageCenterX = containerCenterX + pan.x;
     const imageCenterY = containerCenterY + pan.y;
     
-    // Calculate click position relative to image
-    const imageLeft = imageCenterX - (width * zoom) / 2;
-    const imageTop = imageCenterY - (height * zoom) / 2;
+    // Calculate image bounds
+    const imageLeft = imageCenterX - displayedWidth / 2;
+    const imageTop = imageCenterY - displayedHeight / 2;
     
-    const relativeX = (event.clientX - rect.left - imageLeft) / (width * zoom);
-    const relativeY = (event.clientY - rect.top - imageTop) / (height * zoom);
+    // Get click position relative to the image
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+    
+    // Calculate relative position within the image (0-1)
+    const relativeX = (clickX - imageLeft) / displayedWidth;
+    const relativeY = (clickY - imageTop) / displayedHeight;
 
     // Clamp values to ensure they're within bounds
     const clampedX = Math.max(0, Math.min(1, relativeX)) * 100;
     const clampedY = Math.max(0, Math.min(1, relativeY)) * 100;
+
+    console.log('Click position:', { clickX, clickY, relativeX, relativeY, clampedX, clampedY });
 
     setPendingPosition({ x: clampedX, y: clampedY });
     setIsDialogOpen(true);
@@ -157,8 +169,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     const mouseX = event.clientX - rect.left;
     const mouseY = event.clientY - rect.top;
     
-    const delta = event.deltaY > 0 ? -0.2 : 0.2;
-    const newZoom = Math.max(0.1, Math.min(10, zoom + delta));
+    const delta = event.deltaY > 0 ? -0.1 : 0.1;
+    const newZoom = Math.max(0.05, Math.min(5, zoom + delta)); // Allow up to 5x zoom
     
     // Calculate zoom center point to zoom towards mouse position
     const zoomFactor = newZoom / zoom;
@@ -191,18 +203,31 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   const handleZoomIn = () => {
-    const newZoom = Math.min(10, zoom * 1.5);
+    const newZoom = Math.min(5, zoom * 1.5);
     setZoom(newZoom);
   };
 
   const handleZoomOut = () => {
-    const newZoom = Math.max(0.1, zoom / 1.5);
+    const newZoom = Math.max(0.05, zoom / 1.5);
     setZoom(newZoom);
   };
 
   const handleResetView = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
+    if (mapContainerRef.current) {
+      const container = mapContainerRef.current;
+      const containerAspect = container.clientWidth / container.clientHeight;
+      const imageAspect = naturalDimensions.width / naturalDimensions.height;
+      
+      let initialZoom;
+      if (containerAspect > imageAspect) {
+        initialZoom = container.clientHeight / naturalDimensions.height;
+      } else {
+        initialZoom = container.clientWidth / naturalDimensions.width;
+      }
+      
+      setZoom(Math.min(initialZoom * 0.9, 0.5));
+      setPan({ x: 0, y: 0 });
+    }
   };
 
   const onSubmit = async (values: z.infer<typeof markerSchema>) => {
@@ -283,7 +308,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   const filteredMarkers = markers.filter(marker => visibleLayers.has(marker.layer));
-  const { width: imageDisplayWidth, height: imageDisplayHeight } = getImageDimensions();
+
+  // Calculate actual displayed dimensions
+  const displayedWidth = naturalDimensions.width * zoom;
+  const displayedHeight = naturalDimensions.height * zoom;
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
@@ -301,7 +329,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         onMouseLeave={handleMouseUp}
         onClick={handleMapClick}
       >
-        {/* High-resolution map image */}
+        {/* High-resolution map image container */}
         <div
           className="absolute inset-0 flex items-center justify-center"
           style={{
@@ -313,15 +341,21 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             ref={imageRef}
             src="/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png"
             alt="Campaign Map"
-            className="max-w-none select-none"
+            className="max-w-none select-none block"
             style={{
-              width: `${imageDisplayWidth * zoom}px`,
-              height: `${imageDisplayHeight * zoom}px`,
-              imageRendering: zoom > 2 ? 'pixelated' : 'auto',
-              filter: 'contrast(1.1) saturate(1.1)',
+              width: `${displayedWidth}px`,
+              height: `${displayedHeight}px`,
+              imageRendering: zoom > 1 ? 'pixelated' : 'high-quality',
+              filter: 'contrast(1.05) saturate(1.05)',
+              // Ensure the image loads at full resolution
+              objectFit: 'none',
+              objectPosition: 'center',
             }}
             onLoad={handleImageLoad}
             draggable={false}
+            // Force the browser to load the full resolution
+            loading="eager"
+            decoding="sync"
           />
         </div>
 
@@ -332,8 +366,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             style={{
               left: '50%',
               top: '50%',
-              width: `${imageDisplayWidth * zoom}px`,
-              height: `${imageDisplayHeight * zoom}px`,
+              width: `${displayedWidth}px`,
+              height: `${displayedHeight}px`,
               transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`,
             }}
           >
@@ -554,13 +588,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             </div>
             <div className="mt-4 text-xs text-amber-700 space-y-1">
               <div>Zoom: {Math.round(zoom * 100)}%</div>
-              <div>Max Zoom: 1000%</div>
+              <div>Max Zoom: 500%</div>
               <div className="text-amber-600">Mouse wheel: zoom | Drag: pan</div>
-              {imageDimensions.width > 0 && (
-                <div className="text-amber-600">
-                  Image: {imageDimensions.width}×{imageDimensions.height}px
-                </div>
-              )}
+              <div className="text-amber-600">
+                Native: {naturalDimensions.width}×{naturalDimensions.height}px
+              </div>
+              <div className="text-amber-600">
+                Display: {Math.round(displayedWidth)}×{Math.round(displayedHeight)}px
+              </div>
             </div>
           </CardContent>
         </Card>
