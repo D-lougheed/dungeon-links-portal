@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Plus, Edit, Trash2, MapPin } from 'lucide-react';
+import { ArrowLeft, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -62,39 +62,63 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   // Initialize map
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    if (!mapRef.current) return;
+
+    // Clean up existing map
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
 
     console.log('Initializing Leaflet map');
     
-    // Create map with simple CRS for custom image
-    const map = L.map(mapRef.current, {
-      crs: L.CRS.Simple,
-      minZoom: -1,
-      maxZoom: 3,
-      center: [0, 0],
-      zoom: 0
-    });
-
-    // Define image bounds
-    const imageBounds: L.LatLngBoundsExpression = [[-100, -100], [100, 100]];
-    
-    // Add image overlay
-    L.imageOverlay('/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png', imageBounds).addTo(map);
-    
-    // Set map bounds
-    map.fitBounds(imageBounds);
-    map.setMaxBounds(imageBounds);
-
-    // Add click handler for DM
-    if (isDM) {
-      map.on('click', (e: L.LeafletMouseEvent) => {
-        console.log('Map clicked at:', e.latlng);
-        handleMapClick(e.latlng.lat, e.latlng.lng);
+    try {
+      // Create map with simple CRS for custom image
+      const map = L.map(mapRef.current, {
+        crs: L.CRS.Simple,
+        minZoom: -2,
+        maxZoom: 4,
+        center: [0, 0],
+        zoom: 0,
+        zoomControl: true,
+        attributionControl: false
       });
+
+      // Define image bounds - using a larger coordinate system
+      const imageBounds: L.LatLngBoundsExpression = [[-512, -512], [512, 512]];
+      
+      // Add image overlay with the uploaded map
+      const imageUrl = '/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png';
+      console.log('Adding image overlay with URL:', imageUrl);
+      
+      const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+        opacity: 1,
+        interactive: false
+      });
+      
+      imageOverlay.addTo(map);
+      
+      // Set map view to fit the image
+      map.fitBounds(imageBounds);
+      map.setMaxBounds(imageBounds);
+
+      // Add click handler for DM users only
+      if (isDM) {
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          console.log('Map clicked at:', e.latlng);
+          handleMapClick(e.latlng.lat, e.latlng.lng);
+        });
+      }
+
+      // Store map instance
+      mapInstanceRef.current = map;
+
+      console.log('Map initialized successfully');
+    } catch (error) {
+      console.error('Error initializing map:', error);
     }
 
-    mapInstanceRef.current = map;
-
+    // Cleanup function
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
@@ -103,18 +127,22 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     };
   }, [isDM]);
 
-  // Fetch locations
+  // Fetch locations on component mount
   useEffect(() => {
     fetchLocations();
   }, []);
 
   // Update markers when locations change
   useEffect(() => {
-    if (!mapInstanceRef.current) return;
+    if (!mapInstanceRef.current || !locations.length) return;
+
+    console.log('Updating markers, locations count:', locations.length);
 
     // Clear existing markers
     markersRef.current.forEach(marker => {
-      mapInstanceRef.current?.removeLayer(marker);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(marker);
+      }
     });
     markersRef.current = [];
 
@@ -132,35 +160,65 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     const locationTypeData = LOCATION_TYPES.find(type => type.value === location.location_type);
     const color = locationTypeData?.color || '#A0A0A0';
     
+    // Create custom marker icon
     const icon = L.divIcon({
-      html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+      html: `<div style="
+        background-color: ${color}; 
+        width: 16px; 
+        height: 16px; 
+        border-radius: 50%; 
+        border: 2px solid white; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      "></div>`,
       className: 'custom-marker',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10]
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+      popupAnchor: [0, -8]
     });
 
     const marker = L.marker([location.y_coordinate, location.x_coordinate], { icon });
     
     // Create popup content
     let popupContent = `
-      <div style="padding: 8px;">
-        <h3 style="font-weight: bold; font-size: 18px; margin: 0 0 4px 0;">${location.name}</h3>
-        <p style="font-size: 14px; color: #666; margin: 0 0 8px 0; text-transform: capitalize;">
+      <div style="padding: 8px; min-width: 200px;">
+        <h3 style="font-weight: bold; font-size: 16px; margin: 0 0 4px 0; color: #1f2937;">${location.name}</h3>
+        <p style="font-size: 12px; color: #6b7280; margin: 0 0 8px 0; text-transform: capitalize;">
           ${locationTypeData?.label || location.location_type}
         </p>
     `;
     
     if (location.description) {
-      popupContent += `<p style="font-size: 14px; margin: 0 0 12px 0;">${location.description}</p>`;
+      popupContent += `<p style="font-size: 14px; margin: 0 0 12px 0; color: #374151;">${location.description}</p>`;
     }
     
     if (isDM) {
       popupContent += `
-        <div style="display: flex; gap: 8px;">
-          <button onclick="window.editLocation('${location.id}')" style="background: #2563eb; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button onclick="window.editLocation('${location.id}')" style="
+            background: #3b82f6; 
+            color: white; 
+            border: none; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            font-size: 12px; 
+            cursor: pointer;
+            font-family: inherit;
+          ">
             Edit
           </button>
-          <button onclick="window.deleteLocation('${location.id}')" style="background: #dc2626; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+          <button onclick="window.deleteLocation('${location.id}')" style="
+            background: #ef4444; 
+            color: white; 
+            border: none; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            font-size: 12px; 
+            cursor: pointer;
+            font-family: inherit;
+          ">
             Delete
           </button>
         </div>
@@ -169,12 +227,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     
     popupContent += '</div>';
     
-    marker.bindPopup(popupContent);
+    marker.bindPopup(popupContent, {
+      maxWidth: 250,
+      className: 'custom-popup'
+    });
     
     return marker;
   };
 
-  // Global functions for popup buttons
+  // Set up global functions for popup buttons
   useEffect(() => {
     (window as any).editLocation = (locationId: string) => {
       const location = locations.find(loc => loc.id === locationId);
@@ -195,12 +256,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const fetchLocations = async () => {
     try {
+      console.log('Fetching locations...');
       const { data, error } = await supabase
         .from('map_locations')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      
+      console.log('Fetched locations:', data?.length || 0);
       setLocations(data || []);
     } catch (error) {
       console.error('Error fetching locations:', error);
@@ -217,6 +281,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const handleMapClick = (lat: number, lng: number) => {
     if (!isDM) return;
     
+    console.log('Handling map click at:', lat, lng);
     setClickPosition({ lat, lng });
     setShowAddForm(true);
     setEditingLocation(null);
@@ -267,6 +332,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       setShowAddForm(false);
       setEditingLocation(null);
       setClickPosition(null);
+      setFormData({
+        name: '',
+        description: '',
+        location_type: 'city'
+      });
       fetchLocations();
     } catch (error) {
       console.error('Error saving location:', error);
@@ -281,6 +351,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const handleEdit = (location: MapLocation) => {
     if (!isDM) return;
     
+    console.log('Editing location:', location);
     setEditingLocation(location);
     setClickPosition({ lat: location.y_coordinate, lng: location.x_coordinate });
     setFormData({
@@ -293,6 +364,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const handleDelete = async (locationId: string) => {
     if (!isDM) return;
+    
+    if (!confirm('Are you sure you want to delete this location?')) return;
 
     try {
       const { error } = await supabase
@@ -320,7 +393,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
-        <div className="text-amber-700">Loading map...</div>
+        <div className="text-amber-700 text-lg">Loading map...</div>
       </div>
     );
   }
@@ -341,7 +414,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <div>
               <h1 className="text-2xl font-bold">Interactive World Map</h1>
               <p className="text-amber-100 text-sm">
-                {isDM ? 'Click anywhere to add a location' : 'View campaign locations'}
+                {isDM ? 'Click anywhere on the map to add a location' : 'View campaign locations'}
               </p>
             </div>
           </div>
@@ -352,11 +425,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Map Container */}
           <div className="lg:col-span-3">
-            <Card className="h-[600px]">
-              <CardContent className="p-0 h-full">
+            <Card className="shadow-lg">
+              <CardContent className="p-0">
                 <div
                   ref={mapRef}
-                  className="h-full w-full rounded-lg"
+                  className="h-[600px] w-full rounded-lg bg-gray-100"
                   style={{ minHeight: '600px' }}
                 />
               </CardContent>
@@ -364,21 +437,24 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           </div>
 
           {/* Sidebar */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 space-y-6">
             {/* Legend */}
-            <Card className="mb-6">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Location Types</CardTitle>
+                <CardTitle className="text-lg flex items-center">
+                  <MapPin className="h-5 w-5 mr-2" />
+                  Location Types
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {LOCATION_TYPES.map((type) => (
-                    <div key={type.value} className="flex items-center space-x-2">
+                    <div key={type.value} className="flex items-center space-x-3">
                       <div
-                        className="w-4 h-4 rounded-full border border-gray-300"
+                        className="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0"
                         style={{ backgroundColor: type.color }}
-                      ></div>
-                      <span className="text-sm">{type.label}</span>
+                      />
+                      <span className="text-sm font-medium">{type.label}</span>
                     </div>
                   ))}
                 </div>
@@ -396,18 +472,18 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 <CardContent>
                   <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                      <Label htmlFor="name">Name</Label>
+                      <Label htmlFor="name">Name *</Label>
                       <Input
                         id="name"
                         value={formData.name}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        placeholder="Location name"
+                        placeholder="Enter location name"
                         required
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="location_type">Type</Label>
+                      <Label htmlFor="location_type">Type *</Label>
                       <Select
                         value={formData.location_type}
                         onValueChange={(value) => setFormData({ ...formData, location_type: value })}
@@ -457,6 +533,22 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 </CardContent>
               </Card>
             )}
+
+            {/* Info Card */}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-sm text-gray-600">
+                  <p className="mb-2">
+                    <strong>Locations:</strong> {locations.length}
+                  </p>
+                  {isDM && (
+                    <p className="text-amber-700">
+                      Click anywhere on the map to add a new location.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </main>
