@@ -45,6 +45,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  const isInitializingRef = useRef(false);
   
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,12 +60,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const isDM = userRole === 'dm';
 
-  // Initialize map
+  // Initialize map - removed problematic dependencies
   useEffect(() => {
-    if (!mapRef.current) {
-      console.log('MapRef not available yet');
+    if (!mapRef.current || isInitializingRef.current) {
       return;
     }
+
+    isInitializingRef.current = true;
+    console.log('Starting map initialization...');
 
     // Clean up existing map
     if (mapInstanceRef.current) {
@@ -73,85 +76,64 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       mapInstanceRef.current = null;
     }
 
-    console.log('Starting map initialization...');
-    
     try {
-      // Test if the image exists first
       const imageUrl = '/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png';
-      const testImage = new Image();
       
-      testImage.onload = () => {
-        console.log('Image loaded successfully, creating map...');
-        
-        // Create map with simple CRS for custom image
-        const map = L.map(mapRef.current!, {
-          crs: L.CRS.Simple,
-          minZoom: -5,
-          maxZoom: 5,
-          center: [0, 0],
-          zoom: 0,
-          zoomControl: true,
-          attributionControl: false
+      // Create map immediately without waiting for image
+      const map = L.map(mapRef.current, {
+        crs: L.CRS.Simple,
+        minZoom: -5,
+        maxZoom: 5,
+        center: [0, 0],
+        zoom: 0,
+        zoomControl: true,
+        attributionControl: false
+      });
+
+      console.log('Map created, adding image overlay...');
+
+      // Define image bounds
+      const imageWidth = 8192;
+      const imageHeight = 4532;
+      const imageBounds: L.LatLngBoundsExpression = [
+        [-imageHeight/2, -imageWidth/2],
+        [imageHeight/2, imageWidth/2]
+      ];
+      
+      // Add image overlay
+      const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+        opacity: 1,
+        interactive: false
+      });
+      
+      imageOverlay.addTo(map);
+      console.log('Image overlay added');
+      
+      // Set map view
+      const containerHeight = mapRef.current?.clientHeight || 600;
+      const zoomLevel = Math.log2(containerHeight / 5000) + 1;
+      
+      map.setView([0, 0], zoomLevel);
+      map.setMaxBounds(imageBounds);
+      console.log('Map view set');
+
+      // Add click handler for DM users
+      if (isDM) {
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          console.log('Map clicked at:', e.latlng);
+          handleMapClick(e.latlng.lat, e.latlng.lng);
         });
+        console.log('Click handler added for DM');
+      }
 
-        console.log('Map created, adding image overlay...');
-
-        // Define image bounds based on actual dimensions (8192x4532)
-        // Using the actual aspect ratio: 8192/4532 ≈ 1.807
-        const imageWidth = 8192;
-        const imageHeight = 4532;
-        
-        // Center the image around [0, 0] and use the actual dimensions
-        const imageBounds: L.LatLngBoundsExpression = [
-          [-imageHeight/2, -imageWidth/2], // Southwest corner
-          [imageHeight/2, imageWidth/2]    // Northeast corner
-        ];
-        
-        // Add image overlay with the uploaded map
-        const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
-          opacity: 1,
-          interactive: false
-        });
-        
-        imageOverlay.addTo(map);
-        console.log('Image overlay added with bounds:', imageBounds);
-        
-        // Set map view to center with initial zoom equivalent to 5000px view
-        // Calculate zoom level based on desired view size
-        const containerHeight = mapRef.current?.clientHeight || 600;
-        const zoomLevel = Math.log2(containerHeight / 5000) + 1;
-        
-        map.setView([0, 0], zoomLevel);
-        map.setMaxBounds(imageBounds);
-        console.log('Map view set with zoom level:', zoomLevel);
-
-        // Add click handler for DM users only
-        if (isDM) {
-          map.on('click', (e: L.LeafletMouseEvent) => {
-            console.log('Map clicked at:', e.latlng);
-            handleMapClick(e.latlng.lat, e.latlng.lng);
-          });
-          console.log('Click handler added for DM');
-        }
-
-        // Store map instance
-        mapInstanceRef.current = map;
-        console.log('Map initialization completed successfully');
-      };
-
-      testImage.onerror = () => {
-        console.error('Failed to load map image:', imageUrl);
-        toast({
-          title: "Error",
-          description: "Failed to load map image",
-          variant: "destructive",
-        });
-      };
-
-      testImage.src = imageUrl;
+      // Store map instance
+      mapInstanceRef.current = map;
+      isInitializingRef.current = false;
+      console.log('Map initialization completed successfully');
 
     } catch (error) {
       console.error('Error during map initialization:', error);
+      isInitializingRef.current = false;
       toast({
         title: "Error",
         description: "Failed to initialize map",
@@ -166,8 +148,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
+      isInitializingRef.current = false;
     };
-  }, [isDM, toast]);
+  }, []); // Empty dependency array to prevent re-initialization
 
   // Fetch locations on component mount
   useEffect(() => {
@@ -199,7 +182,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         markersRef.current.push(marker);
       }
     });
-  }, [locations, isDM]);
+  }, [locations]);
 
   const createMarker = (location: MapLocation): L.Marker | null => {
     const locationTypeData = LOCATION_TYPES.find(type => type.value === location.location_type);
@@ -477,7 +460,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   className="h-[600px] w-full rounded-lg bg-gray-200 relative"
                   style={{ minHeight: '600px' }}
                 >
-                  {!mapInstanceRef.current && (
+                  {(!mapInstanceRef.current || isInitializingRef.current) && (
                     <div className="absolute inset-0 flex items-center justify-center text-gray-500">
                       <div className="text-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-2"></div>
