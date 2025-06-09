@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
-import L, { Icon, divIcon } from 'leaflet';
+import L from 'leaflet';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -196,11 +196,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  const createCustomIcon = (locationType: string) => {
+  const createCustomIcon = (locationType: string): L.DivIcon => {
     const locationTypeData = LOCATION_TYPES.find(type => type.value === locationType);
     const color = locationTypeData?.color || '#A0A0A0';
     
-    return divIcon({
+    return L.divIcon({
       html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
       className: 'custom-marker',
       iconSize: [20, 20],
@@ -246,7 +246,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <Card className="h-[600px]">
               <CardContent className="p-0 h-full">
                 <MapContainer
-                  center={[0, 0] as [number, number]}
+                  center={[0, 0]}
                   zoom={2}
                   className="h-full w-full rounded-lg"
                   crs={L.CRS.Simple}
@@ -261,7 +261,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   {locations.map((location) => (
                     <Marker
                       key={location.id}
-                      position={[location.y_coordinate, location.x_coordinate] as [number, number]}
+                      position={[location.y_coordinate, location.x_coordinate]}
                       icon={createCustomIcon(location.location_type)}
                     >
                       <Popup>
