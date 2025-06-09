@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  const isInitializingRef = useRef(false);
   
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isPageLoading, setIsPageLoading] = useState(true);
@@ -78,23 +80,31 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   // Initialize map only after page is loaded
   useEffect(() => {
-    if (isPageLoading || !mapRef.current) return;
+    if (isPageLoading || !mapRef.current || isInitializingRef.current) return;
 
     console.log('Starting map initialization...');
     setIsMapLoading(true);
     setMapError(null);
+    isInitializingRef.current = true;
 
-    // Add a small delay to ensure container is properly rendered
     const initializeMap = async () => {
       try {
-        // Wait a bit more to ensure container is stable
-        await new Promise(resolve => setTimeout(resolve, 500));
-
+        // Ensure container is still available
         if (!mapRef.current) {
-          throw new Error('Map container not available');
+          throw new Error('Map container not available at start');
         }
 
-        console.log('Map container ready, creating map instance...');
+        console.log('Map container confirmed, waiting for stability...');
+        
+        // Wait for container to be stable
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Check again after delay
+        if (!mapRef.current) {
+          throw new Error('Map container lost during initialization');
+        }
+
+        console.log('Creating map instance...');
 
         // Clean up existing map if any
         if (mapInstanceRef.current) {
@@ -102,8 +112,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           mapInstanceRef.current = null;
         }
 
-        // Create map with simple configuration
-        const map = L.map(mapRef.current, {
+        // Verify container one more time before creating map
+        const container = mapRef.current;
+        if (!container) {
+          throw new Error('Container reference lost');
+        }
+
+        // Create map with the stored container reference
+        const map = L.map(container, {
           crs: L.CRS.Simple,
           minZoom: -3,
           maxZoom: 2,
@@ -111,12 +127,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           zoom: -2,
           zoomControl: true,
           attributionControl: false,
-          preferCanvas: true // Use canvas for better performance
+          preferCanvas: true
         });
 
-        console.log('Map instance created, setting up image overlay...');
+        console.log('Map instance created successfully');
 
-        // Define bounds for the 8K image (8192x4532)
+        // Define bounds for the image
         const imageWidth = 8192;
         const imageHeight = 4532;
         const imageBounds: L.LatLngBoundsExpression = [
@@ -124,65 +140,45 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           [imageHeight, imageWidth]
         ];
 
-        // Preload the image first
+        // Load and add image
         const imageUrl = '/lovable-uploads/9acc5a25-ab15-4432-ad70-c75f01712bca.png';
-        const img = new Image();
         
-        const handleImageLoad = () => {
-          console.log('Image loaded successfully, adding to map...');
-          
-          // Add image overlay
-          const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
-            opacity: 1,
-            interactive: false
+        console.log('Adding image overlay...');
+        const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+          opacity: 1,
+          interactive: false
+        });
+        
+        imageOverlay.addTo(map);
+        
+        // Set view
+        map.fitBounds(imageBounds);
+        map.setMaxBounds(imageBounds);
+
+        // Add click handler for DM users
+        if (isDM) {
+          map.on('click', (e: L.LeafletMouseEvent) => {
+            handleMapClick(e.latlng.lat, e.latlng.lng);
           });
-          
-          imageOverlay.addTo(map);
-          
-          // Set view to show the full map
-          map.fitBounds(imageBounds);
-          map.setMaxBounds(imageBounds);
+        }
 
-          // Add click handler for DM users
-          if (isDM) {
-            map.on('click', (e: L.LeafletMouseEvent) => {
-              handleMapClick(e.latlng.lat, e.latlng.lng);
-            });
-          }
-
-          mapInstanceRef.current = map;
-          setIsMapLoading(false);
-          console.log('Map initialization completed successfully');
-        };
-
-        img.onload = handleImageLoad;
-
-        img.onerror = () => {
-          throw new Error('Failed to load map image');
-        };
-
-        // Set a timeout for image loading
-        const loadTimeout = setTimeout(() => {
-          throw new Error('Map image loading timed out');
-        }, 15000);
-
-        img.onload = (event) => {
-          clearTimeout(loadTimeout);
-          handleImageLoad();
-        };
-
-        img.src = imageUrl;
+        mapInstanceRef.current = map;
+        setIsMapLoading(false);
+        console.log('Map initialization completed successfully');
 
       } catch (error) {
         console.error('Map initialization failed:', error);
         setMapError(error instanceof Error ? error.message : 'Failed to initialize map');
         setIsMapLoading(false);
+      } finally {
+        isInitializingRef.current = false;
       }
     };
 
     initializeMap();
 
     return () => {
+      isInitializingRef.current = false;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -499,11 +495,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                       <div className="text-lg font-semibold mb-2">Map Loading Error</div>
                       <div className="text-sm">{mapError}</div>
                       <Button 
-                        onClick={() => window.location.reload()} 
+                        onClick={() => {
+                          setMapError(null);
+                          setIsPageLoading(true);
+                          setTimeout(() => setIsPageLoading(false), 100);
+                        }} 
                         className="mt-4"
                         variant="outline"
                       >
-                        Reload Page
+                        Retry Loading
                       </Button>
                     </div>
                   </div>
