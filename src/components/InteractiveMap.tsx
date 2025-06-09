@@ -256,7 +256,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   className="relative w-full h-96 bg-amber-50 border-2 border-amber-300 rounded-lg overflow-hidden cursor-crosshair"
                   onClick={handleMapClick}
                   style={{
-                    backgroundImage: "url('/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png')",
+                    backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                   }}
