@@ -98,7 +98,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   const getImageDimensions = () => {
-    if (!mapContainerRef.current || !imageLoaded) return { width: 1920, height: 1080 };
+    if (!mapContainerRef.current || !imageLoaded) return { width: 8192, height: 4532 };
     
     const container = mapContainerRef.current;
     const containerAspect = container.clientWidth / container.clientHeight;
