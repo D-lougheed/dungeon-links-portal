@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
@@ -7,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, MapPin, Plus, X } from 'lucide-react';
+import { ArrowLeft, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -43,8 +42,8 @@ const LOCATION_TYPES = [
 const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const { userRole, user } = useAuth();
   const { toast } = useToast();
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
   
   const [locations, setLocations] = useState<MapLocation[]>([]);
@@ -60,107 +59,237 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const isDM = userRole === 'dm';
 
-  // Initialize the map
+  // Initialize map
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!mapRef.current) {
+      console.log('MapRef not available yet');
+      return;
+    }
 
-    console.log('Initializing Leaflet map...');
+    // Clean up existing map
+    if (mapInstanceRef.current) {
+      console.log('Cleaning up existing map');
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    console.log('Starting map initialization...');
     
     try {
-      // Create the map
-      const map = L.map(mapContainerRef.current, {
-        crs: L.CRS.Simple,
-        minZoom: -2,
-        maxZoom: 3,
-        center: [0, 0],
-        zoom: -1,
-        attributionControl: false,
-        zoomControl: true
-      });
-
-      // Define image dimensions and bounds
-      const imageWidth = 1600;
-      const imageHeight = 889;
-      const bounds: L.LatLngBoundsExpression = [
-        [0, 0],
-        [imageHeight, imageWidth]
-      ];
-
-      // Add the map image
-      const imageUrl = '/lovable-uploads/2a12489d-2a98-4642-866f-d17a69d8b550.png';
-      const imageOverlay = L.imageOverlay(imageUrl, bounds);
-      imageOverlay.addTo(map);
-
-      // Set the view to fit the image
-      map.fitBounds(bounds);
-      map.setMaxBounds(bounds);
-
-      // Add click handler for DMs
-      if (isDM) {
-        map.on('click', (e: L.LeafletMouseEvent) => {
-          const { lat, lng } = e.latlng;
-          console.log('Map clicked at:', lat, lng);
-          setClickPosition({ lat, lng });
-          setShowAddForm(true);
-          setEditingLocation(null);
-          setFormData({
-            name: '',
-            description: '',
-            location_type: 'city'
-          });
+      // Test if the image exists first
+      const imageUrl = '/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png';
+      const testImage = new Image();
+      
+      testImage.onload = () => {
+        console.log('Image loaded successfully, creating map...');
+        
+        // Create map with simple CRS for custom image
+        const map = L.map(mapRef.current!, {
+          crs: L.CRS.Simple,
+          minZoom: -3,
+          maxZoom: 5,
+          center: [0, 0],
+          zoom: 0,
+          zoomControl: true,
+          attributionControl: false
         });
-      }
 
-      mapRef.current = map;
-      setIsLoading(false);
-      console.log('Map initialized successfully');
+        console.log('Map created, adding image overlay...');
+
+        // Define image bounds - using a larger coordinate system
+        const imageBounds: L.LatLngBoundsExpression = [[-1000, -1000], [1000, 1000]];
+        
+        // Add image overlay with the uploaded map
+        const imageOverlay = L.imageOverlay(imageUrl, imageBounds, {
+          opacity: 1,
+          interactive: false
+        });
+        
+        imageOverlay.addTo(map);
+        console.log('Image overlay added');
+        
+        // Set map view to fit the image
+        map.fitBounds(imageBounds);
+        map.setMaxBounds(imageBounds);
+        console.log('Map bounds set');
+
+        // Add click handler for DM users only
+        if (isDM) {
+          map.on('click', (e: L.LeafletMouseEvent) => {
+            console.log('Map clicked at:', e.latlng);
+            handleMapClick(e.latlng.lat, e.latlng.lng);
+          });
+          console.log('Click handler added for DM');
+        }
+
+        // Store map instance
+        mapInstanceRef.current = map;
+        console.log('Map initialization completed successfully');
+      };
+
+      testImage.onerror = () => {
+        console.error('Failed to load map image:', imageUrl);
+        toast({
+          title: "Error",
+          description: "Failed to load map image",
+          variant: "destructive",
+        });
+      };
+
+      testImage.src = imageUrl;
 
     } catch (error) {
-      console.error('Error initializing map:', error);
+      console.error('Error during map initialization:', error);
       toast({
-        title: "Map Error",
-        description: "Failed to initialize the map",
+        title: "Error",
+        description: "Failed to initialize map",
         variant: "destructive",
       });
-      setIsLoading(false);
     }
 
     // Cleanup function
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
+      console.log('Cleaning up map on unmount');
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
       }
     };
   }, [isDM, toast]);
 
-  // Load locations from database
+  // Fetch locations on component mount
   useEffect(() => {
     fetchLocations();
   }, []);
 
   // Update markers when locations change
   useEffect(() => {
-    if (!mapRef.current || isLoading) return;
+    if (!mapInstanceRef.current || !locations.length) {
+      console.log('Map not ready or no locations to display');
+      return;
+    }
+
+    console.log('Updating markers, locations count:', locations.length);
 
     // Clear existing markers
     markersRef.current.forEach(marker => {
-      mapRef.current?.removeLayer(marker);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(marker);
+      }
     });
     markersRef.current = [];
 
     // Add new markers
     locations.forEach(location => {
       const marker = createMarker(location);
-      if (marker && mapRef.current) {
-        marker.addTo(mapRef.current);
+      if (marker && mapInstanceRef.current) {
+        marker.addTo(mapInstanceRef.current);
         markersRef.current.push(marker);
       }
     });
-  }, [locations, isLoading]);
+  }, [locations, isDM]);
+
+  const createMarker = (location: MapLocation): L.Marker | null => {
+    const locationTypeData = LOCATION_TYPES.find(type => type.value === location.location_type);
+    const color = locationTypeData?.color || '#A0A0A0';
+    
+    // Create custom marker icon
+    const icon = L.divIcon({
+      html: `<div style="
+        background-color: ${color}; 
+        width: 20px; 
+        height: 20px; 
+        border-radius: 50%; 
+        border: 3px solid white; 
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      "></div>`,
+      className: 'custom-marker',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+      popupAnchor: [0, -10]
+    });
+
+    const marker = L.marker([location.y_coordinate, location.x_coordinate], { icon });
+    
+    // Create popup content
+    let popupContent = `
+      <div style="padding: 10px; min-width: 220px;">
+        <h3 style="font-weight: bold; font-size: 18px; margin: 0 0 6px 0; color: #1f2937;">${location.name}</h3>
+        <p style="font-size: 13px; color: #6b7280; margin: 0 0 10px 0; text-transform: capitalize;">
+          ${locationTypeData?.label || location.location_type}
+        </p>
+    `;
+    
+    if (location.description) {
+      popupContent += `<p style="font-size: 14px; margin: 0 0 12px 0; color: #374151; line-height: 1.4;">${location.description}</p>`;
+    }
+    
+    if (isDM) {
+      popupContent += `
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <button onclick="window.editLocation('${location.id}')" style="
+            background: #3b82f6; 
+            color: white; 
+            border: none; 
+            padding: 6px 12px; 
+            border-radius: 4px; 
+            font-size: 12px; 
+            cursor: pointer;
+            font-family: inherit;
+          ">
+            Edit
+          </button>
+          <button onclick="window.deleteLocation('${location.id}')" style="
+            background: #ef4444; 
+            color: white; 
+            border: none; 
+            padding: 6px 12px; 
+            border-radius: 4px; 
+            font-size: 12px; 
+            cursor: pointer;
+            font-family: inherit;
+          ">
+            Delete
+          </button>
+        </div>
+      `;
+    }
+    
+    popupContent += '</div>';
+    
+    marker.bindPopup(popupContent, {
+      maxWidth: 280,
+      className: 'custom-popup'
+    });
+    
+    return marker;
+  };
+
+  // Set up global functions for popup buttons
+  useEffect(() => {
+    (window as any).editLocation = (locationId: string) => {
+      const location = locations.find(loc => loc.id === locationId);
+      if (location) {
+        handleEdit(location);
+      }
+    };
+
+    (window as any).deleteLocation = (locationId: string) => {
+      handleDelete(locationId);
+    };
+
+    return () => {
+      delete (window as any).editLocation;
+      delete (window as any).deleteLocation;
+    };
+  }, [locations]);
 
   const fetchLocations = async () => {
     try {
+      console.log('Fetching locations...');
       const { data, error } = await supabase
         .from('map_locations')
         .select('*')
@@ -177,126 +306,24 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         description: "Failed to load map locations",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const createMarker = (location: MapLocation): L.Marker | null => {
-    const locationTypeData = LOCATION_TYPES.find(type => type.value === location.location_type);
-    const color = locationTypeData?.color || '#A0A0A0';
+  const handleMapClick = (lat: number, lng: number) => {
+    if (!isDM) return;
     
-    // Create custom icon
-    const icon = L.divIcon({
-      html: `<div style="
-        background-color: ${color}; 
-        width: 16px; 
-        height: 16px; 
-        border-radius: 50%; 
-        border: 2px solid white; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-      "></div>`,
-      className: 'custom-marker',
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-      popupAnchor: [0, -8]
+    console.log('Handling map click at:', lat, lng);
+    setClickPosition({ lat, lng });
+    setShowAddForm(true);
+    setEditingLocation(null);
+    setFormData({
+      name: '',
+      description: '',
+      location_type: 'city'
     });
-
-    const marker = L.marker([location.y_coordinate, location.x_coordinate], { icon });
-    
-    // Create popup content
-    let popupContent = `
-      <div style="padding: 8px; min-width: 200px;">
-        <h3 style="font-weight: bold; margin: 0 0 4px 0;">${location.name}</h3>
-        <p style="font-size: 12px; color: #666; margin: 0 0 8px 0; text-transform: capitalize;">
-          ${locationTypeData?.label || location.location_type}
-        </p>
-    `;
-    
-    if (location.description) {
-      popupContent += `<p style="font-size: 13px; margin: 0 0 8px 0;">${location.description}</p>`;
-    }
-    
-    if (isDM) {
-      popupContent += `
-        <div style="display: flex; gap: 6px;">
-          <button onclick="window.editLocation('${location.id}')" style="
-            background: #3b82f6; 
-            color: white; 
-            border: none; 
-            padding: 4px 8px; 
-            border-radius: 3px; 
-            font-size: 11px; 
-            cursor: pointer;
-          ">Edit</button>
-          <button onclick="window.deleteLocation('${location.id}')" style="
-            background: #ef4444; 
-            color: white; 
-            border: none; 
-            padding: 4px 8px; 
-            border-radius: 3px; 
-            font-size: 11px; 
-            cursor: pointer;
-          ">Delete</button>
-        </div>
-      `;
-    }
-    
-    popupContent += '</div>';
-    
-    marker.bindPopup(popupContent, {
-      maxWidth: 250,
-      className: 'custom-popup'
-    });
-    
-    return marker;
   };
-
-  // Set up global functions for popup buttons
-  useEffect(() => {
-    (window as any).editLocation = (locationId: string) => {
-      const location = locations.find(loc => loc.id === locationId);
-      if (location) {
-        setEditingLocation(location);
-        setClickPosition({ lat: location.y_coordinate, lng: location.x_coordinate });
-        setFormData({
-          name: location.name,
-          description: location.description || '',
-          location_type: location.location_type
-        });
-        setShowAddForm(true);
-      }
-    };
-
-    (window as any).deleteLocation = async (locationId: string) => {
-      if (!confirm('Are you sure you want to delete this location?')) return;
-
-      try {
-        const { error } = await supabase
-          .from('map_locations')
-          .delete()
-          .eq('id', locationId);
-
-        if (error) throw error;
-        
-        toast({
-          title: "Success",
-          description: "Location deleted successfully",
-        });
-        fetchLocations();
-      } catch (error) {
-        console.error('Error deleting location:', error);
-        toast({
-          title: "Error",
-          description: "Failed to delete location",
-          variant: "destructive",
-        });
-      }
-    };
-
-    return () => {
-      delete (window as any).editLocation;
-      delete (window as any).deleteLocation;
-    };
-  }, [locations, toast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -354,6 +381,56 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
+  const handleEdit = (location: MapLocation) => {
+    if (!isDM) return;
+    
+    console.log('Editing location:', location);
+    setEditingLocation(location);
+    setClickPosition({ lat: location.y_coordinate, lng: location.x_coordinate });
+    setFormData({
+      name: location.name,
+      description: location.description || '',
+      location_type: location.location_type
+    });
+    setShowAddForm(true);
+  };
+
+  const handleDelete = async (locationId: string) => {
+    if (!isDM) return;
+    
+    if (!confirm('Are you sure you want to delete this location?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('map_locations')
+        .delete()
+        .eq('id', locationId);
+
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Location deleted successfully",
+      });
+      fetchLocations();
+    } catch (error) {
+      console.error('Error deleting location:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete location",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
+        <div className="text-amber-700 text-lg">Loading map...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
       <header className="bg-gradient-to-r from-amber-800 to-orange-800 text-white shadow-lg">
@@ -383,20 +460,20 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           <div className="lg:col-span-3">
             <Card className="shadow-lg">
               <CardContent className="p-0">
-                {isLoading ? (
-                  <div className="h-[600px] w-full rounded-lg bg-gray-100 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-4"></div>
-                      <div className="text-amber-700 text-lg">Loading map...</div>
+                <div
+                  ref={mapRef}
+                  className="h-[600px] w-full rounded-lg bg-gray-200 relative"
+                  style={{ minHeight: '600px' }}
+                >
+                  {!mapInstanceRef.current && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-500">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto mb-2"></div>
+                        <p>Initializing map...</p>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div
-                    ref={mapContainerRef}
-                    className="h-[600px] w-full rounded-lg"
-                    style={{ minHeight: '600px' }}
-                  />
-                )}
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -430,19 +507,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             {showAddForm && isDM && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center justify-between">
+                  <CardTitle className="text-lg">
                     {editingLocation ? 'Edit Location' : 'Add New Location'}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setShowAddForm(false);
-                        setEditingLocation(null);
-                        setClickPosition(null);
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -488,10 +554,23 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                       />
                     </div>
 
-                    <Button type="submit" className="w-full">
-                      <Plus className="h-4 w-4 mr-2" />
-                      {editingLocation ? 'Update' : 'Add'} Location
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button type="submit" className="flex-1">
+                        <MapPin className="h-4 w-4 mr-2" />
+                        {editingLocation ? 'Update' : 'Add'} Location
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setShowAddForm(false);
+                          setEditingLocation(null);
+                          setClickPosition(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </form>
                 </CardContent>
               </Card>
@@ -504,7 +583,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                   <p className="mb-2">
                     <strong>Locations:</strong> {locations.length}
                   </p>
-                  {isDM && !isLoading && (
+                  {isDM && (
                     <p className="text-amber-700">
                       Click anywhere on the map to add a new location.
                     </p>
