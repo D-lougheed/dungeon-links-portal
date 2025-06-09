@@ -84,6 +84,83 @@ function MapClickHandler({
   return null;
 }
 
+// Component for rendering existing location markers
+function LocationMarkers({ 
+  locations, 
+  onLocationSelect, 
+  onLocationDelete,
+  getImageUrl,
+  createCustomIcon 
+}: {
+  locations: MapLocation[];
+  onLocationSelect: (location: MapLocation) => void;
+  onLocationDelete: (locationId: string) => void;
+  getImageUrl: (filePath: string | null, fallbackUrl: string | null) => string | null;
+  createCustomIcon: (icon: MapIcon) => L.Icon;
+}) {
+  return (
+    <>
+      {locations.map((location) => {
+        const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
+        
+        return (
+          <Marker
+            key={location.id}
+            position={[(location as any).lat, (location as any).lng]}
+            icon={customIcon}
+            eventHandlers={{
+              click: () => {
+                onLocationSelect(location);
+              }
+            }}
+          >
+            <Popup>
+              <div className="p-2">
+                <h3 className="font-bold text-lg">{location.name}</h3>
+                <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
+                {location.description && (
+                  <p className="text-sm mb-3">{location.description}</p>
+                )}
+                <Button
+                  onClick={() => onLocationDelete(location.id)}
+                  variant="destructive"
+                  size="sm"
+                  className="w-full"
+                >
+                  <Trash2 className="h-3 w-3 mr-1" />
+                  Delete
+                </Button>
+              </div>
+            </Popup>
+          </Marker>
+        );
+      })}
+    </>
+  );
+}
+
+// Component for new location preview
+function NewLocationPreview({ 
+  newLocation 
+}: { 
+  newLocation: { lat: number; lng: number; name: string } 
+}) {
+  if (newLocation.lat === 0 && newLocation.lng === 0) {
+    return null;
+  }
+
+  return (
+    <Marker position={[newLocation.lat, newLocation.lng]}>
+      <Popup>
+        <div className="p-2">
+          <h3 className="font-bold text-green-600">New Location</h3>
+          <p className="text-sm">Click "Save Location" to add this marker</p>
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
 const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
   const [mapSettings, setMapSettings] = useState<MapSettings | null>(null);
   const [locations, setLocations] = useState<MapLocation[]>([]);
@@ -547,8 +624,7 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       />
                       
-                      {/* Custom map image overlay if available */}
-                      {currentMapImageUrl && mapBounds && (
+                      {currentMapImageUrl && (
                         <ImageOverlay
                           url={currentMapImageUrl}
                           bounds={mapBounds}
@@ -561,54 +637,19 @@ const AdminMap: React.FC<AdminMapProps> = ({ onBack }) => {
                         onLocationClick={handleMapClick}
                       />
                       
-                      {/* Render locations as markers */}
-                      {locations.map((location) => {
-                        const customIcon = location.icon ? createCustomIcon(location.icon) : undefined;
-                        
-                        return (
-                          <Marker
-                            key={location.id}
-                            position={[(location as any).lat, (location as any).lng]}
-                            icon={customIcon}
-                            eventHandlers={{
-                              click: () => {
-                                setSelectedLocation(location);
-                                setIsAddingLocation(false);
-                              }
-                            }}
-                          >
-                            <Popup>
-                              <div className="p-2">
-                                <h3 className="font-bold text-lg">{location.name}</h3>
-                                <p className="text-sm text-gray-600 mb-2">Type: {location.location_type}</p>
-                                {location.description && (
-                                  <p className="text-sm mb-3">{location.description}</p>
-                                )}
-                                <Button
-                                  onClick={() => handleDeleteLocation(location.id)}
-                                  variant="destructive"
-                                  size="sm"
-                                  className="w-full"
-                                >
-                                  <Trash2 className="h-3 w-3 mr-1" />
-                                  Delete
-                                </Button>
-                              </div>
-                            </Popup>
-                          </Marker>
-                        );
-                      })}
+                      <LocationMarkers
+                        locations={locations}
+                        onLocationSelect={(location) => {
+                          setSelectedLocation(location);
+                          setIsAddingLocation(false);
+                        }}
+                        onLocationDelete={handleDeleteLocation}
+                        getImageUrl={getImageUrl}
+                        createCustomIcon={createCustomIcon}
+                      />
                       
-                      {/* New location preview */}
-                      {isAddingLocation && newLocation.lat !== 0 && newLocation.lng !== 0 && (
-                        <Marker position={[newLocation.lat, newLocation.lng]}>
-                          <Popup>
-                            <div className="p-2">
-                              <h3 className="font-bold text-green-600">New Location</h3>
-                              <p className="text-sm">Click "Save Location" to add this marker</p>
-                            </div>
-                          </Popup>
-                        </Marker>
+                      {isAddingLocation && (
+                        <NewLocationPreview newLocation={newLocation} />
                       )}
                     </MapContainer>
                   )}
