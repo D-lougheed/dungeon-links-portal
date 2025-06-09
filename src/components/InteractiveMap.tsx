@@ -100,7 +100,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const handleWheel = (event: React.WheelEvent) => {
     event.preventDefault();
     const delta = event.deltaY > 0 ? -0.1 : 0.1;
-    const newZoom = Math.max(0.5, Math.min(3, zoom + delta));
+    const newZoom = Math.max(0.5, Math.min(5, zoom + delta));
     setZoom(newZoom);
   };
 
@@ -123,7 +123,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   const handleZoomIn = () => {
-    setZoom(Math.min(3, zoom + 0.2));
+    setZoom(Math.min(5, zoom + 0.2));
   };
 
   const handleZoomOut = () => {
@@ -236,10 +236,20 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: '0 0',
             backgroundImage: "url('/lovable-uploads/9e267bab-8bfd-4003-b5f3-8a4ffe43aea5.png')",
-            backgroundSize: 'cover',
+            backgroundSize: 'contain',
+            backgroundRepeat: 'no-repeat',
             backgroundPosition: 'center',
-            width: '100%',
-            height: '100%',
+            width: '100vw',
+            height: '100vh',
+            imageRendering: 'auto',
+            WebkitImageRendering: 'auto',
+            MozImageRendering: 'auto',
+            msImageRendering: 'auto',
+            filter: 'none',
+            backfaceVisibility: 'hidden',
+            WebkitBackfaceVisibility: 'hidden',
+            WebkitTransform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+            willChange: 'transform',
           }}
         >
           {/* Markers */}
