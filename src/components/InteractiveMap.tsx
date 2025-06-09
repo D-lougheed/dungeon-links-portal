@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, ImageOverlay, Marker, Popup, useMapEvents } from 'react-leaflet';
+
+import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,87 +40,13 @@ const LOCATION_TYPES = [
   { value: 'custom', label: 'Custom', color: '#A0A0A0' }
 ];
 
-// Define the image bounds for the custom map
-const imageBounds: L.LatLngBoundsExpression = [[-100, -100], [100, 100]];
-
-// Create custom marker icon
-const createCustomIcon = (locationType: string): L.DivIcon => {
-  const locationTypeData = LOCATION_TYPES.find(type => type.value === locationType);
-  const color = locationTypeData?.color || '#A0A0A0';
-  
-  return L.divIcon({
-    html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
-    className: 'custom-marker',
-    iconSize: [20, 20],
-    iconAnchor: [10, 10]
-  });
-};
-
-// Separate component for map interactions and markers
-const MapInteractionLayer: React.FC<{
-  locations: MapLocation[];
-  onMapClick: (lat: number, lng: number) => void;
-  onEdit: (location: MapLocation) => void;
-  onDelete: (locationId: string) => void;
-  isDM: boolean;
-}> = ({ locations, onMapClick, onEdit, onDelete, isDM }) => {
-  // Handle map click events
-  useMapEvents({
-    click: (e) => {
-      if (isDM) {
-        onMapClick(e.latlng.lat, e.latlng.lng);
-      }
-    },
-  });
-
-  return (
-    <>
-      {locations.map((location) => (
-        <Marker
-          key={location.id}
-          position={[location.y_coordinate, location.x_coordinate]}
-          icon={createCustomIcon(location.location_type)}
-        >
-          <Popup>
-            <div className="p-2">
-              <h3 className="font-bold text-lg">{location.name}</h3>
-              <p className="text-sm text-gray-600 capitalize mb-2">
-                {LOCATION_TYPES.find(type => type.value === location.location_type)?.label}
-              </p>
-              {location.description && (
-                <p className="text-sm mb-3">{location.description}</p>
-              )}
-              {isDM && (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => onEdit(location)}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Edit className="h-3 w-3 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => onDelete(location.id)}
-                  >
-                    <Trash2 className="h-3 w-3 mr-1" />
-                    Delete
-                  </Button>
-                </div>
-              )}
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-    </>
-  );
-};
-
 const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const { userRole, user } = useAuth();
   const { toast } = useToast();
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
+  
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -134,9 +60,138 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   const isDM = userRole === 'dm';
 
+  // Initialize map
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    console.log('Initializing Leaflet map');
+    
+    // Create map with simple CRS for custom image
+    const map = L.map(mapRef.current, {
+      crs: L.CRS.Simple,
+      minZoom: -1,
+      maxZoom: 3,
+      center: [0, 0],
+      zoom: 0
+    });
+
+    // Define image bounds
+    const imageBounds: L.LatLngBoundsExpression = [[-100, -100], [100, 100]];
+    
+    // Add image overlay
+    L.imageOverlay('/lovable-uploads/4ea00f93-791c-461f-b98c-c80934503936.png', imageBounds).addTo(map);
+    
+    // Set map bounds
+    map.fitBounds(imageBounds);
+    map.setMaxBounds(imageBounds);
+
+    // Add click handler for DM
+    if (isDM) {
+      map.on('click', (e: L.LeafletMouseEvent) => {
+        console.log('Map clicked at:', e.latlng);
+        handleMapClick(e.latlng.lat, e.latlng.lng);
+      });
+    }
+
+    mapInstanceRef.current = map;
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [isDM]);
+
+  // Fetch locations
   useEffect(() => {
     fetchLocations();
   }, []);
+
+  // Update markers when locations change
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+
+    // Clear existing markers
+    markersRef.current.forEach(marker => {
+      mapInstanceRef.current?.removeLayer(marker);
+    });
+    markersRef.current = [];
+
+    // Add new markers
+    locations.forEach(location => {
+      const marker = createMarker(location);
+      if (marker && mapInstanceRef.current) {
+        marker.addTo(mapInstanceRef.current);
+        markersRef.current.push(marker);
+      }
+    });
+  }, [locations, isDM]);
+
+  const createMarker = (location: MapLocation): L.Marker | null => {
+    const locationTypeData = LOCATION_TYPES.find(type => type.value === location.location_type);
+    const color = locationTypeData?.color || '#A0A0A0';
+    
+    const icon = L.divIcon({
+      html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+      className: 'custom-marker',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
+
+    const marker = L.marker([location.y_coordinate, location.x_coordinate], { icon });
+    
+    // Create popup content
+    let popupContent = `
+      <div style="padding: 8px;">
+        <h3 style="font-weight: bold; font-size: 18px; margin: 0 0 4px 0;">${location.name}</h3>
+        <p style="font-size: 14px; color: #666; margin: 0 0 8px 0; text-transform: capitalize;">
+          ${locationTypeData?.label || location.location_type}
+        </p>
+    `;
+    
+    if (location.description) {
+      popupContent += `<p style="font-size: 14px; margin: 0 0 12px 0;">${location.description}</p>`;
+    }
+    
+    if (isDM) {
+      popupContent += `
+        <div style="display: flex; gap: 8px;">
+          <button onclick="window.editLocation('${location.id}')" style="background: #2563eb; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+            Edit
+          </button>
+          <button onclick="window.deleteLocation('${location.id}')" style="background: #dc2626; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+            Delete
+          </button>
+        </div>
+      `;
+    }
+    
+    popupContent += '</div>';
+    
+    marker.bindPopup(popupContent);
+    
+    return marker;
+  };
+
+  // Global functions for popup buttons
+  useEffect(() => {
+    (window as any).editLocation = (locationId: string) => {
+      const location = locations.find(loc => loc.id === locationId);
+      if (location) {
+        handleEdit(location);
+      }
+    };
+
+    (window as any).deleteLocation = (locationId: string) => {
+      handleDelete(locationId);
+    };
+
+    return () => {
+      delete (window as any).editLocation;
+      delete (window as any).deleteLocation;
+    };
+  }, [locations]);
 
   const fetchLocations = async () => {
     try {
@@ -299,32 +354,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           <div className="lg:col-span-3">
             <Card className="h-[600px]">
               <CardContent className="p-0 h-full">
-                <MapContainer
-                  center={[0, 0]}
-                  zoom={1}
+                <div
+                  ref={mapRef}
                   className="h-full w-full rounded-lg"
-                  crs={L.CRS.Simple}
-                  minZoom={-1}
-                  maxZoom={3}
-                  bounds={imageBounds}
-                  maxBounds={imageBounds}
-                  maxBoundsViscosity={1.0}
-                  whenReady={() => {
-                    console.log('Map is ready');
-                  }}
-                >
-                  <ImageOverlay
-                    url="/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png"
-                    bounds={imageBounds}
-                  />
-                  <MapInteractionLayer
-                    locations={locations}
-                    onMapClick={handleMapClick}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                    isDM={isDM}
-                  />
-                </MapContainer>
+                  style={{ minHeight: '600px' }}
+                />
               </CardContent>
             </Card>
           </div>
