@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ArrowLeft, Plus, Edit, Trash2, Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw, Layers, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -66,9 +66,23 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     },
   });
 
+  // Load markers from localStorage on component mount
   useEffect(() => {
-    fetchMarkers();
+    const savedMarkers = localStorage.getItem('interactiveMapMarkers');
+    if (savedMarkers) {
+      try {
+        const parsedMarkers = JSON.parse(savedMarkers);
+        setMarkers(parsedMarkers);
+      } catch (error) {
+        console.error('Error loading markers from localStorage:', error);
+      }
+    }
   }, []);
+
+  // Save markers to localStorage whenever markers change
+  useEffect(() => {
+    localStorage.setItem('interactiveMapMarkers', JSON.stringify(markers));
+  }, [markers]);
 
   // Handle image load to get natural dimensions
   const handleImageLoad = () => {
@@ -102,21 +116,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         // Scale it down a bit so there's some margin
         setZoom(Math.min(initialZoom * 0.9, 0.5));
       }
-    }
-  };
-
-  const fetchMarkers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('map_markers')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      setMarkers(data || []);
-    } catch (error) {
-      console.error('Error fetching markers:', error);
-      toast.error('Failed to load markers');
     }
   };
 
@@ -235,32 +234,26 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     try {
       if (editingMarker) {
         // Update existing marker
-        const { error } = await supabase
-          .from('map_markers')
-          .update({
-            name: values.name,
-            layer: values.layer,
-          })
-          .eq('id', editingMarker.id);
-
-        if (error) throw error;
+        setMarkers(prev => prev.map(marker => 
+          marker.id === editingMarker.id 
+            ? { ...marker, name: values.name, layer: values.layer }
+            : marker
+        ));
         toast.success('Marker updated successfully');
       } else if (pendingPosition) {
         // Create new marker
-        const { error } = await supabase
-          .from('map_markers')
-          .insert({
-            name: values.name,
-            x: pendingPosition.x,
-            y: pendingPosition.y,
-            layer: values.layer,
-          });
-
-        if (error) throw error;
+        const newMarker: MapMarker = {
+          id: crypto.randomUUID(),
+          name: values.name,
+          x: pendingPosition.x,
+          y: pendingPosition.y,
+          layer: values.layer,
+          created_at: new Date().toISOString(),
+        };
+        setMarkers(prev => [...prev, newMarker]);
         toast.success('Marker added successfully');
       }
 
-      await fetchMarkers();
       setIsDialogOpen(false);
       setPendingPosition(null);
       setEditingMarker(null);
@@ -282,14 +275,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     if (!confirm('Are you sure you want to delete this marker?')) return;
 
     try {
-      const { error } = await supabase
-        .from('map_markers')
-        .delete()
-        .eq('id', markerId);
-
-      if (error) throw error;
+      setMarkers(prev => prev.filter(marker => marker.id !== markerId));
       toast.success('Marker deleted successfully');
-      await fetchMarkers();
     } catch (error) {
       console.error('Error deleting marker:', error);
       toast.error('Failed to delete marker');

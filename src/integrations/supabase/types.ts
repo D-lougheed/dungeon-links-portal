@@ -9,33 +9,6 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      map_markers: {
-        Row: {
-          created_at: string | null
-          id: string
-          layer: string
-          name: string
-          x: number
-          y: number
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          layer: string
-          name: string
-          x: number
-          y: number
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          layer?: string
-          name?: string
-          x?: number
-          y?: number
-        }
-        Relationships: []
-      }
       OBSNotes: {
         Row: {
           created_at: string
