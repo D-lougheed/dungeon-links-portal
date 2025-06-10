@@ -1,17 +1,17 @@
+
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, Bot, Settings, Shield, Users, Map } from 'lucide-react';
+import { LogOut, Bot, Settings, Shield, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import AIWorldAssistant from './AIWorldAssistant';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
 import AdminTools from './AdminTools';
-import InteractiveMap from './InteractiveMap';
 
 const Dashboard = () => {
   const { user, userRole, signOut } = useAuth();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'world-ai' | 'general-ai' | 'slumbering-ai' | 'admin' | 'map'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'world-ai' | 'general-ai' | 'slumbering-ai' | 'admin'>('dashboard');
 
   const handleSignOut = async () => {
     await signOut();
@@ -32,10 +32,6 @@ const Dashboard = () => {
 
   if (currentView === 'admin') {
     return <AdminTools onBack={() => setCurrentView('dashboard')} />;
-  }
-
-  if (currentView === 'map') {
-    return <InteractiveMap onBack={() => setCurrentView('dashboard')} />;
   }
 
   return (
@@ -73,27 +69,6 @@ const Dashboard = () => {
 
       <main className="relative z-10 container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Interactive Map Section */}
-          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
-            <CardHeader>
-              <CardTitle className="text-amber-900 flex items-center">
-                <Map className="h-5 w-5 mr-2" />
-                Interactive Map
-              </CardTitle>
-              <CardDescription>
-                Explore your campaign world with interactive markers and layers
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button 
-                onClick={() => setCurrentView('map')}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                Open Campaign Map
-              </Button>
-            </CardContent>
-          </Card>
-
           {/* AI Assistants Section */}
           <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
             <CardHeader>
@@ -197,8 +172,8 @@ const Dashboard = () => {
                 </div>
                 <p className="text-sm text-amber-600">
                   {userRole === 'dm' 
-                    ? 'You have full access to all features including admin tools and map editing' 
-                    : 'You can access AI assistants and view the campaign map'
+                    ? 'You have full access to all features including admin tools' 
+                    : 'You can access AI assistants and campaign resources'
                   }
                 </p>
               </div>
