@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -345,7 +344,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             style={{
               width: `${displayedWidth}px`,
               height: `${displayedHeight}px`,
-              imageRendering: zoom > 1 ? 'pixelated' : 'high-quality',
+              imageRendering: zoom > 1 ? 'pixelated' : 'auto',
               filter: 'contrast(1.05) saturate(1.05)',
               // Ensure the image loads at full resolution
               objectFit: 'none',
