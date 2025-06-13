@@ -30,11 +30,26 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
   const [newPin, setNewPin] = useState({ title: '', description: '' });
   const [pendingLocation, setPendingLocation] = useState<{ x: number; y: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mapImageUrl, setMapImageUrl] = useState<string>('');
   const { toast } = useToast();
+
+  // Get the map image URL from Supabase storage
+  useEffect(() => {
+    const getMapImageUrl = () => {
+      const { data } = supabase.storage
+        .from('map-images')
+        .getPublicUrl('The Slumbering Ancients 100+ Large.jpg');
+      
+      console.log('Map image URL:', data.publicUrl);
+      setMapImageUrl(data.publicUrl);
+    };
+
+    getMapImageUrl();
+  }, []);
 
   // Initialize Leaflet map
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || !mapImageUrl) return;
 
     // Load Leaflet CSS and JS
     const link = document.createElement('link');
@@ -56,7 +71,7 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
         mapInstanceRef.current.remove();
       }
     };
-  }, []);
+  }, [mapImageUrl]);
 
   // Load pins from database
   useEffect(() => {
@@ -64,44 +79,28 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
   }, []);
 
   const initializeMap = () => {
-    if (!(window as any).L || !mapRef.current) return;
+    if (!(window as any).L || !mapRef.current || !mapImageUrl) return;
 
     const L = (window as any).L;
 
-    // Define image bounds (adjust these based on your map's aspect ratio)
-    const imageBounds = [[0, 0], [1000, 1600]]; // Height x Width in pixels
+    // Use actual image dimensions: 8192x4532
+    const imageWidth = 8192;
+    const imageHeight = 4532;
+    
+    // Define image bounds using actual dimensions
+    const imageBounds = [[0, 0], [imageHeight, imageWidth]];
 
     // Create map with CRS.Simple for image coordinates
     const map = L.map(mapRef.current, {
       crs: L.CRS.Simple,
-      minZoom: -2,
+      minZoom: -3,
       maxZoom: 2,
       zoomControl: true,
       attributionControl: false
     });
 
     // Add the fantasy map image as an overlay
-    const mapOverlay = L.rectangle(imageBounds, {
-      color: '#8B4513',
-      fillColor: '#DEB887',
-      fillOpacity: 0.8,
-      weight: 2
-    }).addTo(map);
-
-    // Add terrain-like styling
-    const mountainArea = L.rectangle([[200, 200], [400, 800]], {
-      color: '#654321',
-      fillColor: '#8B7355',
-      fillOpacity: 0.6,
-      weight: 1
-    }).addTo(map);
-
-    const oceanArea = L.rectangle([[600, 600], [800, 1400]], {
-      color: '#4682B4',
-      fillColor: '#87CEEB',
-      fillOpacity: 0.7,
-      weight: 1
-    }).addTo(map);
+    const mapOverlay = L.imageOverlay(mapImageUrl, imageBounds).addTo(map);
 
     // Set view to show entire map
     map.fitBounds(imageBounds);
@@ -110,6 +109,7 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
     map.on('click', (e: any) => {
       if (isAddingPin) {
         const { lat, lng } = e.latlng;
+        console.log('Pin location clicked:', { x: lng, y: lat });
         setPendingLocation({ x: lng, y: lat });
       }
     });
