@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,57 +10,10 @@ import MapSelector from './map/MapSelector';
 import PinManager from './map/PinManager';
 import DistanceTool from './map/DistanceTool';
 import MapCanvas from './map/MapCanvas';
+import { Map, Pin, PinType, DistanceMeasurement, DatabaseDistanceMeasurement } from './map/types';
 
 interface InteractiveMapProps {
   onBack: () => void;
-}
-
-interface Map {
-  id: string;
-  name: string;
-  description: string | null;
-  image_url: string;
-  width: number;
-  height: number;
-  scale_factor: number | null;
-  scale_unit: string | null;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface Pin {
-  id: string;
-  map_id: string;
-  pin_type_id: string | null;
-  name: string;
-  description: string | null;
-  x_normalized: number;
-  y_normalized: number;
-  external_link: string | null;
-  is_visible: boolean;
-  pin_types?: {
-    name: string;
-    color: string;
-    category: string;
-  };
-}
-
-interface PinType {
-  id: string;
-  name: string;
-  description: string | null;
-  color: string;
-  category: string | null;
-  size_modifier: number;
-}
-
-interface DistanceMeasurement {
-  id: string;
-  map_id: string;
-  name: string;
-  points: { x: number; y: number }[];
-  total_distance: number | null;
-  unit: string;
 }
 
 const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
@@ -76,6 +28,35 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [activeMode, setActiveMode] = useState<'view' | 'pin' | 'distance'>('view');
   const [selectedPinType, setSelectedPinType] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Helper function to transform database distance measurement to our type
+  const transformDistanceMeasurement = (dbDistance: DatabaseDistanceMeasurement): DistanceMeasurement => {
+    let points: { x: number; y: number }[] = [];
+    
+    if (dbDistance.points) {
+      try {
+        if (typeof dbDistance.points === 'string') {
+          points = JSON.parse(dbDistance.points);
+        } else if (Array.isArray(dbDistance.points)) {
+          points = dbDistance.points;
+        }
+      } catch (error) {
+        console.error('Error parsing points:', error);
+        points = [];
+      }
+    }
+
+    return {
+      id: dbDistance.id,
+      map_id: dbDistance.map_id,
+      name: dbDistance.name,
+      points,
+      total_distance: dbDistance.total_distance,
+      unit: dbDistance.unit,
+      created_by: dbDistance.created_by,
+      created_at: dbDistance.created_at,
+    };
+  };
 
   // Load initial data
   useEffect(() => {
@@ -137,9 +118,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         .select(`
           *,
           pin_types (
+            id,
             name,
+            description,
             color,
-            category
+            category,
+            size_modifier
           )
         `)
         .eq('map_id', mapId);
@@ -154,7 +138,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         .eq('map_id', mapId);
 
       if (distanceError) throw distanceError;
-      setDistances(distanceData || []);
+      
+      // Transform the distance measurements
+      const transformedDistances = (distanceData || []).map(transformDistanceMeasurement);
+      setDistances(transformedDistances);
 
     } catch (error) {
       console.error('Error loading map data:', error);
@@ -204,9 +191,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         .select(`
           *,
           pin_types (
+            id,
             name,
+            description,
             color,
-            category
+            category,
+            size_modifier
           )
         `)
         .single();
@@ -305,7 +295,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
       if (error) throw error;
 
-      setDistances(prev => [...prev, data]);
+      // Transform the response and add to state
+      const transformedDistance = transformDistanceMeasurement(data);
+      setDistances(prev => [...prev, transformedDistance]);
+      
       toast({
         title: "Success",
         description: "Distance measurement saved!",

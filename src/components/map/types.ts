@@ -67,3 +67,15 @@ export interface DistanceMeasurement {
   created_by: string | null;
   created_at: string;
 }
+
+// Database response types that need transformation
+export interface DatabaseDistanceMeasurement {
+  id: string;
+  map_id: string;
+  name: string;
+  points: any; // Json type from database
+  total_distance: number | null;
+  unit: string;
+  created_by: string | null;
+  created_at: string;
+}
