@@ -1,0 +1,16 @@
+spec:
+  name: dnd-campaign-manager
+  services:
+  - name: web
+    source_dir: /
+    github:
+      repo: your-username/your-repo-name
+      branch: main
+    run_command: npm start
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    build_command: npm ci && npm run build
+    http_port: 8080
+    routes:
+    - path: /
