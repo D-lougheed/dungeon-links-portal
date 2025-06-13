@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -94,7 +95,10 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
           setMapImageUrl('data:image/svg+xml;base64,' + btoa(`
             <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
               <rect width="800" height="600" fill="#DEB887"/>
-              <text x="400" y="300" text-anchor="middle" fill="#654321" font-size="16">Fantasy Map</text>
+              <rect x="100" y="100" width="200" height="150" fill="#8B7355" opacity="0.7"/>
+              <rect x="400" y="300" width="300" height="200" fill="#87CEEB" opacity="0.7"/>
+              <text x="400" y="50" text-anchor="middle" fill="#654321" font-size="20">Fantasy Map</text>
+              <text x="400" y="80" text-anchor="middle" fill="#654321" font-size="12">(Fallback - Original image failed to load)</text>
             </svg>
           `));
         };
@@ -172,35 +176,6 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
     };
 
     loadLeaflet();
-  }, []);
-
-  // Initialize map when both Leaflet and image are ready
-  useEffect(() => {
-    if (!leafletLoaded || !imageLoaded || !mapImageUrl || !mapRef.current || mapReady) {
-      console.log('Map init conditions:', {
-        leafletLoaded,
-        imageLoaded,
-        mapImageUrl: !!mapImageUrl,
-        mapRef: !!mapRef.current,
-        mapReady
-      });
-      return;
-    }
-    
-    setLoadingStatus('Initializing map...');
-    console.log('All conditions met, initializing map...');
-    
-    // Small delay to ensure DOM is ready
-    const initTimer = setTimeout(() => {
-      initializeMap();
-    }, 200);
-
-    return () => clearTimeout(initTimer);
-  }, [leafletLoaded, imageLoaded, mapImageUrl, mapReady]);
-
-  // Load pins from database
-  useEffect(() => {
-    loadPins();
   }, []);
 
   const initializeMap = useCallback(() => {
@@ -314,6 +289,65 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
       setLoadingStatus('Map initialization failed');
     }
   }, [mapImageUrl, isAddingPin, mapReady, toast]);
+
+  // Initialize map when both Leaflet and image are ready
+  useEffect(() => {
+    if (!leafletLoaded || !imageLoaded || !mapImageUrl || mapReady) {
+      console.log('Map init conditions:', {
+        leafletLoaded,
+        imageLoaded,
+        mapImageUrl: !!mapImageUrl,
+        mapRef: !!mapRef.current,
+        mapReady
+      });
+      return;
+    }
+    
+    // Wait for DOM element to be ready with multiple checks
+    const checkMapElement = () => {
+      if (!mapRef.current) {
+        console.log('Map element not ready, retrying...');
+        return false;
+      }
+      return true;
+    };
+    
+    setLoadingStatus('Initializing map...');
+    console.log('All conditions met, checking map element...');
+    
+    // Try multiple times with increasing delays to ensure DOM is ready
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    const tryInitialize = () => {
+      attempts++;
+      
+      if (checkMapElement()) {
+        console.log('Map element ready, initializing...');
+        initializeMap();
+      } else if (attempts < maxAttempts) {
+        console.log(`Map element not ready, attempt ${attempts}/${maxAttempts}, retrying...`);
+        setTimeout(tryInitialize, 200 * attempts); // Increasing delay
+      } else {
+        console.error('Failed to initialize map: element never became available');
+        setLoadingStatus('Failed to initialize - map element not found');
+        toast({
+          title: "Error",
+          description: "Failed to initialize map container",
+          variant: "destructive",
+        });
+      }
+    };
+    
+    // Start trying to initialize
+    tryInitialize();
+    
+  }, [leafletLoaded, imageLoaded, mapImageUrl, mapReady, toast, initializeMap]);
+
+  // Load pins from database
+  useEffect(() => {
+    loadPins();
+  }, []);
 
   const loadPins = async () => {
     try {
