@@ -9,6 +9,36 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      map_pins: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          title: string
+          user_id: string | null
+          x: number
+          y: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          title: string
+          user_id?: string | null
+          x: number
+          y: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          title?: string
+          user_id?: string | null
+          x?: number
+          y?: number
+        }
+        Relationships: []
+      }
       OBSNotes: {
         Row: {
           created_at: string
