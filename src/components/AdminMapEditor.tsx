@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,54 +29,32 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
   const [newPin, setNewPin] = useState({ title: '', description: '' });
   const [pendingLocation, setPendingLocation] = useState<{ x: number; y: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [mapImageUrl, setMapImageUrl] = useState<string>('');
+  const [mapImageUrl] = useState<string>('https://rmdgogbnptgfwgcdgruh.supabase.co/storage/v1/object/public/map-images//The%20Slumbering%20Ancients%20100+%206k.jpg');
   const [leafletLoaded, setLeafletLoaded] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('Initializing...');
   const { toast } = useToast();
 
-  // Get the map image URL from Supabase storage
+  // Test if the image loads
   useEffect(() => {
-    const getMapImageUrl = async () => {
-      try {
-        setLoadingStatus('Loading map image...');
-        const { data } = supabase.storage
-          .from('map-images')
-          .getPublicUrl('The Slumbering Ancients 100+ 6k.jpg');
-        
-        console.log('Map image URL:', data.publicUrl);
-        
-        // Test if the image actually loads
-        const img = new Image();
-        img.onload = () => {
-          console.log('Image loaded successfully');
-          setImageLoaded(true);
-          setMapImageUrl(data.publicUrl);
-        };
-        img.onerror = (error) => {
-          console.error('Failed to load image:', error);
-          toast({
-            title: "Error",
-            description: "Failed to load map image. Please check if the file exists in storage.",
-            variant: "destructive",
-          });
-          setLoadingStatus('Failed to load map image');
-        };
-        img.src = data.publicUrl;
-      } catch (error) {
-        console.error('Error getting map image URL:', error);
-        toast({
-          title: "Error",
-          description: "Failed to get map image URL",
-          variant: "destructive",
-        });
-        setLoadingStatus('Error loading map image');
-      }
+    setLoadingStatus('Loading map image...');
+    const img = new Image();
+    img.onload = () => {
+      console.log('Image loaded successfully');
+      setImageLoaded(true);
     };
-
-    getMapImageUrl();
-  }, [toast]);
+    img.onerror = (error) => {
+      console.error('Failed to load image:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load map image. Please check if the file exists in storage.",
+        variant: "destructive",
+      });
+      setLoadingStatus('Failed to load map image');
+    };
+    img.src = mapImageUrl;
+  }, [mapImageUrl, toast]);
 
   // Load Leaflet libraries
   useEffect(() => {
