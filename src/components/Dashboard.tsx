@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -15,12 +14,14 @@ import {
   Bot,
   Sparkles,
   Settings,
-  User
+  User,
+  Map
 } from 'lucide-react';
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
 import AdminTools from './AdminTools';
+import InteractiveMap from './InteractiveMap';
 
 const Dashboard = () => {
   const { signOut, user, userRole } = useAuth();
@@ -34,6 +35,14 @@ const Dashboard = () => {
       icon: Settings,
       status: "Available",
       dmOnly: true
+    },
+    {
+      id: "interactive-map",
+      title: "Interactive World Map",
+      description: "View and manage campaign world locations with an interactive map",
+      icon: Map,
+      status: "Available",
+      dmOnly: false
     },
     {
       id: "general-ai-assistant",
@@ -122,6 +131,10 @@ const Dashboard = () => {
 
   if (activeFeature === "admin-tools") {
     return <AdminTools onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "interactive-map") {
+    return <InteractiveMap onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "general-ai-assistant") {

@@ -9,6 +9,101 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      distance_measurements: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          id: string
+          map_id: string
+          name: string
+          points: Json
+          total_distance: number | null
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          map_id: string
+          name: string
+          points: Json
+          total_distance?: number | null
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          map_id?: string
+          name?: string
+          points?: Json
+          total_distance?: number | null
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distance_measurements_map_id_fkey"
+            columns: ["map_id"]
+            isOneToOne: false
+            referencedRelation: "maps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maps: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          height: number
+          id: string
+          image_path: string
+          image_url: string
+          is_active: boolean | null
+          metadata: Json | null
+          name: string
+          scale_factor: number | null
+          scale_unit: string | null
+          thumbnail_url: string | null
+          updated_at: string | null
+          width: number
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          height: number
+          id?: string
+          image_path: string
+          image_url: string
+          is_active?: boolean | null
+          metadata?: Json | null
+          name: string
+          scale_factor?: number | null
+          scale_unit?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string | null
+          width: number
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          height?: number
+          id?: string
+          image_path?: string
+          image_url?: string
+          is_active?: boolean | null
+          metadata?: Json | null
+          name?: string
+          scale_factor?: number | null
+          scale_unit?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string | null
+          width?: number
+        }
+        Relationships: []
+      }
       OBSNotes: {
         Row: {
           created_at: string
@@ -26,6 +121,117 @@ export type Database = {
           notes?: string | null
         }
         Relationships: []
+      }
+      pin_types: {
+        Row: {
+          category: string | null
+          color: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          icon_path: string | null
+          icon_url: string | null
+          id: string
+          is_active: boolean | null
+          metadata: Json | null
+          name: string
+          size_modifier: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          category?: string | null
+          color?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          icon_path?: string | null
+          icon_url?: string | null
+          id?: string
+          is_active?: boolean | null
+          metadata?: Json | null
+          name: string
+          size_modifier?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string | null
+          color?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          icon_path?: string | null
+          icon_url?: string | null
+          id?: string
+          is_active?: boolean | null
+          metadata?: Json | null
+          name?: string
+          size_modifier?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      pins: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          external_link: string | null
+          id: string
+          is_visible: boolean | null
+          map_id: string
+          metadata: Json | null
+          name: string
+          pin_type_id: string | null
+          updated_at: string | null
+          x_normalized: number
+          y_normalized: number
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          external_link?: string | null
+          id?: string
+          is_visible?: boolean | null
+          map_id: string
+          metadata?: Json | null
+          name: string
+          pin_type_id?: string | null
+          updated_at?: string | null
+          x_normalized: number
+          y_normalized: number
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          external_link?: string | null
+          id?: string
+          is_visible?: boolean | null
+          map_id?: string
+          metadata?: Json | null
+          name?: string
+          pin_type_id?: string | null
+          updated_at?: string | null
+          x_normalized?: number
+          y_normalized?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pins_map_id_fkey"
+            columns: ["map_id"]
+            isOneToOne: false
+            referencedRelation: "maps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pins_pin_type_id_fkey"
+            columns: ["pin_type_id"]
+            isOneToOne: false
+            referencedRelation: "pin_types"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -118,8 +324,8 @@ export type Database = {
         Returns: unknown
       }
       get_user_role: {
-        Args: { _user_id: string }
-        Returns: Database["public"]["Enums"]["app_role"]
+        Args: Record<PropertyKey, never> | { _user_id: string }
+        Returns: Database["public"]["Enums"]["user_role"]
       }
       halfvec_avg: {
         Args: { "": number[] }
@@ -161,7 +367,7 @@ export type Database = {
         Returns: unknown
       }
       is_dm: {
-        Args: { user_id: string }
+        Args: Record<PropertyKey, never> | { user_id: string }
         Returns: boolean
       }
       ivfflat_bit_support: {
@@ -223,6 +429,7 @@ export type Database = {
     }
     Enums: {
       app_role: "dm" | "player"
+      user_role: "dm" | "player"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -339,6 +546,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["dm", "player"],
+      user_role: ["dm", "player"],
     },
   },
 } as const
