@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, MapPin, Plus, Save, Trash2 } from 'lucide-react';
@@ -30,108 +31,155 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
   const [pendingLocation, setPendingLocation] = useState<{ x: number; y: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mapImageUrl, setMapImageUrl] = useState<string>('');
-  const [mapInitialized, setMapInitialized] = useState(false);
+  const [leafletLoaded, setLeafletLoaded] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState('Initializing...');
   const { toast } = useToast();
 
   // Get the map image URL from Supabase storage
   useEffect(() => {
-    const getMapImageUrl = () => {
-      const { data } = supabase.storage
-        .from('map-images')
-        .getPublicUrl('The Slumbering Ancients 100+ Large.jpg');
-      
-      console.log('Map image URL:', data.publicUrl);
-      setMapImageUrl(data.publicUrl);
+    const getMapImageUrl = async () => {
+      try {
+        setLoadingStatus('Loading map image...');
+        const { data } = supabase.storage
+          .from('map-images')
+          .getPublicUrl('The Slumbering Ancients 100+ Large.jpg');
+        
+        console.log('Map image URL:', data.publicUrl);
+        
+        // Test if the image actually loads
+        const img = new Image();
+        img.onload = () => {
+          console.log('Image loaded successfully');
+          setImageLoaded(true);
+          setMapImageUrl(data.publicUrl);
+        };
+        img.onerror = (error) => {
+          console.error('Failed to load image:', error);
+          toast({
+            title: "Error",
+            description: "Failed to load map image. Please check if the file exists in storage.",
+            variant: "destructive",
+          });
+          setLoadingStatus('Failed to load map image');
+        };
+        img.src = data.publicUrl;
+      } catch (error) {
+        console.error('Error getting map image URL:', error);
+        toast({
+          title: "Error",
+          description: "Failed to get map image URL",
+          variant: "destructive",
+        });
+        setLoadingStatus('Error loading map image');
+      }
     };
 
     getMapImageUrl();
-  }, []);
+  }, [toast]);
 
   // Load Leaflet libraries
   useEffect(() => {
     const loadLeaflet = () => {
+      setLoadingStatus('Loading map library...');
+      
       // Check if Leaflet is already loaded
       if ((window as any).L) {
         console.log('Leaflet already loaded');
-        return Promise.resolve();
+        setLeafletLoaded(true);
+        return;
       }
 
-      return new Promise<void>((resolve, reject) => {
-        // Load CSS first
-        if (!document.querySelector('link[href*="leaflet.css"]')) {
-          const link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-          link.onload = () => console.log('Leaflet CSS loaded');
-          link.onerror = () => console.error('Failed to load Leaflet CSS');
-          document.head.appendChild(link);
-        }
+      // Load CSS first
+      if (!document.querySelector('link[href*="leaflet.css"]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        link.onload = () => console.log('Leaflet CSS loaded');
+        link.onerror = () => {
+          console.error('Failed to load Leaflet CSS');
+          setLoadingStatus('Failed to load map styles');
+        };
+        document.head.appendChild(link);
+      }
 
-        // Load JS
-        if (!document.querySelector('script[src*="leaflet.js"]')) {
-          const script = document.createElement('script');
-          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-          script.onload = () => {
-            console.log('Leaflet JS loaded');
-            resolve();
-          };
-          script.onerror = () => {
-            console.error('Failed to load Leaflet JS');
-            reject(new Error('Failed to load Leaflet'));
-          };
-          document.head.appendChild(script);
-        } else if ((window as any).L) {
-          resolve();
-        }
-      });
+      // Load JS
+      if (!document.querySelector('script[src*="leaflet.js"]')) {
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = () => {
+          console.log('Leaflet JS loaded');
+          // Add a small delay to ensure Leaflet is fully initialized
+          setTimeout(() => {
+            if ((window as any).L) {
+              setLeafletLoaded(true);
+            } else {
+              console.error('Leaflet not available after loading');
+              setLoadingStatus('Failed to initialize map library');
+            }
+          }, 100);
+        };
+        script.onerror = () => {
+          console.error('Failed to load Leaflet JS');
+          setLoadingStatus('Failed to load map library');
+        };
+        document.head.appendChild(script);
+      }
     };
 
-    loadLeaflet().catch(error => {
-      console.error('Error loading Leaflet:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load map library",
-        variant: "destructive",
-      });
-    });
+    loadLeaflet();
   }, []);
 
-  // Initialize map when both Leaflet and image URL are ready
+  // Initialize map when both Leaflet and image are ready
   useEffect(() => {
-    if (!mapRef.current || !mapImageUrl || mapInitialized) return;
+    if (!leafletLoaded || !imageLoaded || !mapImageUrl || !mapRef.current || mapReady) {
+      console.log('Map init conditions:', {
+        leafletLoaded,
+        imageLoaded,
+        mapImageUrl: !!mapImageUrl,
+        mapRef: !!mapRef.current,
+        mapReady
+      });
+      return;
+    }
     
-    // Wait a bit for Leaflet to be fully loaded
+    setLoadingStatus('Initializing map...');
+    console.log('All conditions met, initializing map...');
+    
+    // Small delay to ensure DOM is ready
     const initTimer = setTimeout(() => {
-      if ((window as any).L) {
-        console.log('Initializing map with image URL:', mapImageUrl);
-        initializeMap();
-        setMapInitialized(true);
-      } else {
-        console.error('Leaflet not available for map initialization');
-      }
-    }, 500);
+      initializeMap();
+    }, 200);
 
     return () => clearTimeout(initTimer);
-  }, [mapImageUrl, mapInitialized]);
+  }, [leafletLoaded, imageLoaded, mapImageUrl, mapReady]);
 
   // Load pins from database
   useEffect(() => {
     loadPins();
   }, []);
 
-  const initializeMap = () => {
-    if (!(window as any).L || !mapRef.current || !mapImageUrl) {
+  const initializeMap = useCallback(() => {
+    if (!(window as any).L || !mapRef.current || !mapImageUrl || mapReady) {
       console.error('Map initialization failed - missing requirements:', {
         leaflet: !!(window as any).L,
         mapRef: !!mapRef.current,
-        mapImageUrl: !!mapImageUrl
+        mapImageUrl: !!mapImageUrl,
+        mapReady
       });
       return;
     }
 
     try {
       const L = (window as any).L;
-      console.log('Creating map with L:', L);
+      console.log('Creating map with Leaflet...');
+
+      // Clear any existing map instance
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
 
       // Use actual image dimensions: 8192x4532
       const imageWidth = 8192;
@@ -147,13 +195,38 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
         minZoom: -3,
         maxZoom: 2,
         zoomControl: true,
-        attributionControl: false
+        attributionControl: false,
+        zoomSnap: 0.25,
+        zoomDelta: 0.25
       });
 
       console.log('Map created, adding image overlay...');
 
       // Add the fantasy map image as an overlay
       const mapOverlay = L.imageOverlay(mapImageUrl, imageBounds);
+      
+      mapOverlay.on('load', () => {
+        console.log('Image overlay loaded successfully');
+        setMapReady(true);
+        setIsLoading(false);
+        setLoadingStatus('Map ready');
+        
+        // Add existing pins after image loads
+        setTimeout(() => {
+          addPinsToMap();
+        }, 100);
+      });
+
+      mapOverlay.on('error', (error: any) => {
+        console.error('Image overlay failed to load:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load map image overlay",
+          variant: "destructive",
+        });
+        setLoadingStatus('Failed to load map overlay');
+      });
+
       mapOverlay.addTo(map);
 
       console.log('Image overlay added, fitting bounds...');
@@ -172,21 +245,17 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
 
       mapInstanceRef.current = map;
       console.log('Map initialization complete');
-      
-      // Add existing pins to map after a short delay
-      setTimeout(() => {
-        addPinsToMap();
-      }, 100);
 
     } catch (error) {
       console.error('Error initializing map:', error);
       toast({
         title: "Error",
-        description: "Failed to initialize map",
+        description: "Failed to initialize map: " + (error as Error).message,
         variant: "destructive",
       });
+      setLoadingStatus('Map initialization failed');
     }
-  };
+  }, [mapImageUrl, isAddingPin, mapReady, toast]);
 
   const loadPins = async () => {
     try {
@@ -205,12 +274,10 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
         description: "Failed to load map pins",
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const addPinsToMap = () => {
+  const addPinsToMap = useCallback(() => {
     if (!mapInstanceRef.current || !(window as any).L || pins.length === 0) {
       console.log('Cannot add pins to map:', {
         mapInstance: !!mapInstanceRef.current,
@@ -223,15 +290,32 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
     const L = (window as any).L;
     console.log('Adding pins to map:', pins.length);
 
+    // Clear existing markers first
+    mapInstanceRef.current.eachLayer((layer: any) => {
+      if (layer.options && layer.options.icon) {
+        mapInstanceRef.current.removeLayer(layer);
+      }
+    });
+
     pins.forEach(pin => {
       const marker = L.marker([pin.y, pin.x], {
         icon: L.divIcon({
           className: 'custom-pin',
-          html: `<div class="w-6 h-6 bg-red-500 rounded-full border-2 border-white shadow-lg flex items-center justify-center">
-                   <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                     <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/>
-                   </svg>
-                 </div>`,
+          html: `<div style="
+            width: 24px; 
+            height: 24px; 
+            background-color: #ef4444; 
+            border-radius: 50%; 
+            border: 2px solid white; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+          ">
+            <svg style="width: 16px; height: 16px; color: white;" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/>
+            </svg>
+          </div>`,
           iconSize: [24, 24],
           iconAnchor: [12, 12]
         })
@@ -241,7 +325,14 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
         setSelectedPin(pin);
       });
     });
-  };
+  }, [pins]);
+
+  // Re-add pins when pins array changes
+  useEffect(() => {
+    if (mapReady && pins.length > 0) {
+      addPinsToMap();
+    }
+  }, [pins, mapReady, addPinsToMap]);
 
   const savePin = async () => {
     if (!pendingLocation || !newPin.title.trim()) return;
@@ -272,17 +363,6 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
       setIsAddingPin(false);
       await loadPins();
       
-      // Refresh map pins
-      setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.eachLayer((layer: any) => {
-            if (layer.options && layer.options.icon) {
-              mapInstanceRef.current.removeLayer(layer);
-            }
-          });
-          addPinsToMap();
-        }
-      }, 100);
     } catch (error) {
       console.error('Error saving pin:', error);
       toast({
@@ -309,20 +389,9 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
         description: "Pin deleted successfully",
       });
 
-      setPins(pins.filter(p => p.id !== pinId));
+      setPins(prevPins => prevPins.filter(p => p.id !== pinId));
       setSelectedPin(null);
       
-      // Refresh map
-      setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.eachLayer((layer: any) => {
-            if (layer.options && layer.options.icon) {
-              mapInstanceRef.current.removeLayer(layer);
-            }
-          });
-          addPinsToMap();
-        }
-      }, 100);
     } catch (error) {
       console.error('Error deleting pin:', error);
       toast({
@@ -333,10 +402,22 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || !mapReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100">
-        <div className="text-amber-700">Loading map...</div>
+        <div className="text-center">
+          <div className="text-amber-700 text-lg mb-2">{loadingStatus}</div>
+          <div className="text-amber-600 text-sm">
+            Leaflet: {leafletLoaded ? '✓' : '⏳'} | 
+            Image: {imageLoaded ? '✓' : '⏳'} | 
+            Map: {mapReady ? '✓' : '⏳'}
+          </div>
+          {mapImageUrl && !imageLoaded && (
+            <div className="text-xs text-amber-500 mt-2">
+              Image URL: {mapImageUrl.substring(0, 50)}...
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -359,15 +440,6 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
           {/* Map Container */}
           <div className="flex-1 relative">
             <div ref={mapRef} className="w-full h-full bg-gray-200" />
-            
-            {/* Debug info */}
-            {!mapInitialized && (
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white p-4 rounded-lg shadow-lg">
-                <p className="text-sm text-gray-600">Initializing map...</p>
-                <p className="text-xs text-gray-400">Image URL: {mapImageUrl ? 'Loaded' : 'Loading...'}</p>
-                <p className="text-xs text-gray-400">Leaflet: {(window as any).L ? 'Ready' : 'Loading...'}</p>
-              </div>
-            )}
             
             {/* Map Controls */}
             <div className="absolute top-4 left-4 z-[1000]">
