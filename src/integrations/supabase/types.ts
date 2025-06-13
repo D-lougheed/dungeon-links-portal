@@ -9,6 +9,42 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      map_locations: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          location_type: string
+          name: string
+          updated_at: string
+          x_coordinate: number
+          y_coordinate: number
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          location_type: string
+          name: string
+          updated_at?: string
+          x_coordinate: number
+          y_coordinate: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          location_type?: string
+          name?: string
+          updated_at?: string
+          x_coordinate?: number
+          y_coordinate?: number
+        }
+        Relationships: []
+      }
       OBSNotes: {
         Row: {
           created_at: string
@@ -159,10 +195,6 @@ export type Database = {
       hnswhandler: {
         Args: { "": unknown }
         Returns: unknown
-      }
-      is_dm: {
-        Args: { user_id: string }
-        Returns: boolean
       }
       ivfflat_bit_support: {
         Args: { "": unknown }
