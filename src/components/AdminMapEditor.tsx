@@ -35,7 +35,19 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('Initializing...');
+  const [domReady, setDomReady] = useState(false);
   const { toast } = useToast();
+
+  // Ensure DOM is ready
+  useEffect(() => {
+    // Force a re-render after component mounts to ensure refs are available
+    const timer = setTimeout(() => {
+      setDomReady(true);
+      console.log('DOM ready state set to true');
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   // Get the map image URL from Supabase storage
   useEffect(() => {
@@ -292,13 +304,14 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
 
   // Initialize map when both Leaflet and image are ready
   useEffect(() => {
-    if (!leafletLoaded || !imageLoaded || !mapImageUrl || mapReady) {
+    if (!leafletLoaded || !imageLoaded || !mapImageUrl || mapReady || !domReady) {
       console.log('Map init conditions:', {
         leafletLoaded,
         imageLoaded,
         mapImageUrl: !!mapImageUrl,
         mapRef: !!mapRef.current,
-        mapReady
+        mapReady,
+        domReady
       });
       return;
     }
@@ -342,7 +355,7 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
     // Start trying to initialize
     tryInitialize();
     
-  }, [leafletLoaded, imageLoaded, mapImageUrl, mapReady, toast, initializeMap]);
+  }, [leafletLoaded, imageLoaded, mapImageUrl, mapReady, domReady, toast, initializeMap]);
 
   // Load pins from database
   useEffect(() => {
@@ -494,7 +507,7 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
     }
   };
 
-  if (isLoading || !mapReady) {
+  if (isLoading && (!leafletLoaded || !imageLoaded)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100">
         <div className="text-center">
@@ -508,6 +521,7 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
           {/* More detailed debug info */}
           <div className="text-xs text-gray-600 bg-white/80 p-3 rounded-lg inline-block">
             <div className="grid grid-cols-2 gap-2 text-left">
+              <span>DOM Ready:</span><span>{domReady ? '✅' : '❌'}</span>
               <span>Leaflet Ready:</span><span>{leafletLoaded ? '✅' : '❌'}</span>
               <span>Image Ready:</span><span>{imageLoaded ? '✅' : '❌'}</span>
               <span>Map Element:</span><span>{mapRef.current ? '✅' : '❌'}</span>
@@ -515,11 +529,13 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
               <span>Map Instance:</span><span>{mapReady ? '✅' : 'Initializing...'}</span>
             </div>
             
-            {leafletLoaded && imageLoaded && !mapReady && (
+            {leafletLoaded && imageLoaded && domReady && !mapReady && (
               <div className="mt-3 text-amber-600 font-medium">
                 🔄 Map initialization in progress...
                 <br />
-                <span className="text-xs">This should complete within 3 seconds</span>
+                <span className="text-xs">
+                  {mapRef.current ? 'Element found, initializing...' : 'Waiting for map element...'}
+                </span>
               </div>
             )}
             
