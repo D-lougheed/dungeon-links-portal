@@ -44,7 +44,7 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
         setLoadingStatus('Loading map image...');
         const { data } = supabase.storage
           .from('map-images')
-          .getPublicUrl('The Slumbering Ancients 100+ Large.jpg');
+          .getPublicUrl('The Slumbering Ancients 100+ 6k.jpg');
         
         console.log('Map image URL:', data.publicUrl);
         
