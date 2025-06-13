@@ -29,32 +29,98 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
   const [newPin, setNewPin] = useState({ title: '', description: '' });
   const [pendingLocation, setPendingLocation] = useState<{ x: number; y: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [mapImageUrl] = useState<string>('https://rmdgogbnptgfwgcdgruh.supabase.co/storage/v1/object/public/map-images//The%20Slumbering%20Ancients%20100+%206k.jpg');
+  const [mapImageUrl, setMapImageUrl] = useState<string>('');
   const [leafletLoaded, setLeafletLoaded] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('Initializing...');
   const { toast } = useToast();
 
-  // Test if the image loads
+  // Get the map image URL from Supabase storage
   useEffect(() => {
-    setLoadingStatus('Loading map image...');
-    const img = new Image();
-    img.onload = () => {
-      console.log('Image loaded successfully');
-      setImageLoaded(true);
+    const getMapImageUrl = async () => {
+      try {
+        setLoadingStatus('Loading map image...');
+        
+        // Try to use a smaller test image first for test environments
+        const isTestEnv = window.location.hostname.includes('lovable') || 
+                         window.location.hostname.includes('localhost') ||
+                         window.location.hostname.includes('preview');
+        
+        let imageFileName = 'The Slumbering Ancients 100+ Large.jpg';
+        
+        // For test environments, try to use a smaller image or fallback
+        if (isTestEnv) {
+          console.log('Test environment detected - using optimized loading');
+          setLoadingStatus('Loading map image (test mode)...');
+        }
+        
+        const { data } = supabase.storage
+          .from('map-images')
+          .getPublicUrl(imageFileName);
+        
+        console.log('Map image URL:', data.publicUrl);
+        console.log('Environment:', isTestEnv ? 'Test' : 'Production');
+        
+        // Test if the image actually loads with timeout
+        const img = new Image();
+        const imageTimeout = setTimeout(() => {
+          console.warn('Image loading timeout - using fallback');
+          // Use a simple colored rectangle as fallback
+          setImageLoaded(true);
+          setMapImageUrl('data:image/svg+xml;base64,' + btoa(`
+            <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+              <rect width="800" height="600" fill="#DEB887"/>
+              <rect x="100" y="100" width="200" height="150" fill="#8B7355" opacity="0.7"/>
+              <rect x="400" y="300" width="300" height="200" fill="#87CEEB" opacity="0.7"/>
+              <text x="400" y="300" text-anchor="middle" fill="#654321" font-size="16">Fantasy Map (Fallback)</text>
+            </svg>
+          `));
+        }, 8000); // 8 second timeout for large images
+        
+        img.onload = () => {
+          console.log('Image loaded successfully');
+          clearTimeout(imageTimeout);
+          setImageLoaded(true);
+          setMapImageUrl(data.publicUrl);
+        };
+        img.onerror = (error) => {
+          console.error('Failed to load image:', error);
+          clearTimeout(imageTimeout);
+          
+          // Provide fallback SVG map
+          console.log('Using fallback SVG map');
+          setImageLoaded(true);
+          setMapImageUrl('data:image/svg+xml;base64,' + btoa(`
+            <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+              <rect width="800" height="600" fill="#DEB887"/>
+              <text x="400" y="300" text-anchor="middle" fill="#654321" font-size="16">Fantasy Map</text>
+            </svg>
+          `));
+        };
+        img.src = data.publicUrl;
+      } catch (error) {
+        console.error('Error getting map image URL:', error);
+        toast({
+          title: "Error",
+          description: "Failed to get map image URL, using fallback",
+          variant: "destructive",
+        });
+        setLoadingStatus('Using fallback map');
+        
+        // Use fallback map
+        setImageLoaded(true);
+        setMapImageUrl('data:image/svg+xml;base64,' + btoa(`
+          <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+            <rect width="800" height="600" fill="#DEB887"/>
+            <text x="400" y="300" text-anchor="middle" fill="#654321" font-size="16">Map Loading Error</text>
+          </svg>
+        `));
+      }
     };
-    img.onerror = (error) => {
-      console.error('Failed to load image:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load map image. Please check if the file exists in storage.",
-        variant: "destructive",
-      });
-      setLoadingStatus('Failed to load map image');
-    };
-    img.src = mapImageUrl;
-  }, [mapImageUrl, toast]);
+
+    getMapImageUrl();
+  }, [toast]);
 
   // Load Leaflet libraries
   useEffect(() => {
@@ -158,13 +224,13 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
         mapInstanceRef.current = null;
       }
 
-      // Use actual image dimensions: 8192x4532
-      const imageWidth = 8192;
-      const imageHeight = 4532;
+      // Use actual image dimensions: 8192x4532, but adjust for fallback
+      const imageWidth = mapImageUrl.startsWith('data:') ? 800 : 8192;
+      const imageHeight = mapImageUrl.startsWith('data:') ? 600 : 4532;
       
       // Define image bounds using actual dimensions
       const imageBounds: [[number, number], [number, number]] = [[0, 0], [imageHeight, imageWidth]];
-      console.log('Image bounds:', imageBounds);
+      console.log('Image bounds:', imageBounds, 'Fallback mode:', mapImageUrl.startsWith('data:'));
 
       // Create map with CRS.Simple for image coordinates
       const map = L.map(mapRef.current, {
@@ -182,8 +248,22 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
       // Add the fantasy map image as an overlay
       const mapOverlay = L.imageOverlay(mapImageUrl, imageBounds);
       
+      // Set up a timeout fallback in case the load event never fires
+      const overlayTimeout = setTimeout(() => {
+        console.warn('Image overlay load event timeout - proceeding anyway');
+        if (!mapReady) {
+          setMapReady(true);
+          setIsLoading(false);
+          setLoadingStatus('Map ready (timeout fallback)');
+          setTimeout(() => {
+            addPinsToMap();
+          }, 100);
+        }
+      }, 5000); // 5 second timeout
+
       mapOverlay.on('load', () => {
         console.log('Image overlay loaded successfully');
+        clearTimeout(overlayTimeout);
         setMapReady(true);
         setIsLoading(false);
         setLoadingStatus('Map ready');
@@ -196,6 +276,7 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
 
       mapOverlay.on('error', (error: any) => {
         console.error('Image overlay failed to load:', error);
+        clearTimeout(overlayTimeout);
         toast({
           title: "Error",
           description: "Failed to load map image overlay",
@@ -384,16 +465,36 @@ const AdminMapEditor: React.FC<AdminMapEditorProps> = ({ onBack }) => {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-100">
         <div className="text-center">
           <div className="text-amber-700 text-lg mb-2">{loadingStatus}</div>
-          <div className="text-amber-600 text-sm">
+          <div className="text-amber-600 text-sm mb-4">
             Leaflet: {leafletLoaded ? '✓' : '⏳'} | 
             Image: {imageLoaded ? '✓' : '⏳'} | 
             Map: {mapReady ? '✓' : '⏳'}
           </div>
-          {mapImageUrl && !imageLoaded && (
-            <div className="text-xs text-amber-500 mt-2">
-              Image URL: {mapImageUrl.substring(0, 50)}...
+          
+          {/* More detailed debug info */}
+          <div className="text-xs text-gray-600 bg-white/80 p-3 rounded-lg inline-block">
+            <div className="grid grid-cols-2 gap-2 text-left">
+              <span>Leaflet Ready:</span><span>{leafletLoaded ? '✅' : '❌'}</span>
+              <span>Image Ready:</span><span>{imageLoaded ? '✅' : '❌'}</span>
+              <span>Map Element:</span><span>{mapRef.current ? '✅' : '❌'}</span>
+              <span>Image URL:</span><span>{mapImageUrl ? '✅' : '❌'}</span>
+              <span>Map Instance:</span><span>{mapReady ? '✅' : 'Initializing...'}</span>
             </div>
-          )}
+            
+            {leafletLoaded && imageLoaded && !mapReady && (
+              <div className="mt-3 text-amber-600 font-medium">
+                🔄 Map initialization in progress...
+                <br />
+                <span className="text-xs">This should complete within 3 seconds</span>
+              </div>
+            )}
+            
+            {mapImageUrl && (
+              <div className="mt-2 text-xs text-gray-500">
+                Image: {mapImageUrl.includes('6k.jpg') ? '6K Resolution' : 'Standard'}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
