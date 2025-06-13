@@ -2,20 +2,13 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Database, Download, Upload, Settings, Map, Users, FileText } from 'lucide-react';
-import AdminMapEditor from './AdminMapEditor';
+import { ArrowLeft, Database, Download, Upload, Settings, Users, FileText } from 'lucide-react';
 
 interface AdminToolsProps {
   onBack: () => void;
 }
 
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'map'>('main');
-
-  if (currentView === 'map') {
-    return <AdminMapEditor onBack={() => setCurrentView('main')} />;
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100">
       <div className="container mx-auto px-4 py-8">
@@ -36,27 +29,6 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Map Editor */}
-          <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
-            <CardHeader>
-              <CardTitle className="text-amber-900 flex items-center">
-                <Map className="h-5 w-5 mr-2" />
-                Map Editor
-              </CardTitle>
-              <CardDescription>
-                Create and manage interactive map pins for your campaign world
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button 
-                onClick={() => setCurrentView('map')}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                Open Map Editor
-              </Button>
-            </CardContent>
-          </Card>
-
           {/* Content Scraping */}
           <Card className="bg-white/90 backdrop-blur-sm border-amber-200 shadow-lg hover:shadow-xl transition-shadow">
             <CardHeader>
