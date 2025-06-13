@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, Database, Download, Upload, Settings, Map, Users, FileText } from 'lucide-react';
-import ScrapeProgress from './ScrapeProgress';
 import AdminMapEditor from './AdminMapEditor';
 
 interface AdminToolsProps {
@@ -11,11 +10,7 @@ interface AdminToolsProps {
 }
 
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'scrape' | 'map'>('main');
-
-  if (currentView === 'scrape') {
-    return <ScrapeProgress onBack={() => setCurrentView('main')} />;
-  }
+  const [currentView, setCurrentView] = useState<'main' | 'map'>('main');
 
   if (currentView === 'map') {
     return <AdminMapEditor onBack={() => setCurrentView('main')} />;
@@ -75,10 +70,10 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
             </CardHeader>
             <CardContent>
               <Button 
-                onClick={() => setCurrentView('scrape')}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                disabled
               >
-                Manage Content
+                Coming Soon
               </Button>
             </CardContent>
           </Card>
