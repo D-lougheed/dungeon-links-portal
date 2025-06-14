@@ -4,15 +4,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Map as MapType, Pin as DatabasePin, PinType, DistanceMeasurement } from './map/types';
 
-// Local Pin interface for the map component - simplified from database Pin
-interface LocalPin {
+interface Pin {
   id: string;
   x: number;
   y: number;
   label: string;
   color: string;
   pin_type_id?: string;
-  pin_type?: Partial<PinType>; // Make pin_type partial to handle incomplete data
+  pin_type?: PinType;
   description?: string;
 }
 
@@ -45,7 +44,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   // State management
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [pins, setPins] = useState<LocalPin[]>([]);
+  const [pins, setPins] = useState<Pin[]>([]);
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -63,7 +62,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [pinTypes, setPinTypes] = useState<PinType[]>([]);
   const [selectedPinType, setSelectedPinType] = useState<string | null>(null);
   const [showPinEditor, setShowPinEditor] = useState(false);
-  const [editingPin, setEditingPin] = useState<LocalPin | null>(null);
+  const [editingPin, setEditingPin] = useState<Pin | null>(null);
   const [showScaleSettings, setShowScaleSettings] = useState(false);
   const [showPinTypeManager, setShowPinTypeManager] = useState(false);
 
@@ -138,7 +137,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Load pins for the current map
+  // Load pins for the current map with proper coordinate conversion
   const loadPinsForMap = async (mapId: string) => {
     try {
       const { data, error } = await supabase
@@ -166,22 +165,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       const mapWidth = selectedMap?.width || 1;
       const mapHeight = selectedMap?.height || 1;
 
-      const convertedPins: LocalPin[] = data.map((pin: DatabasePin) => ({
+      const convertedPins: Pin[] = data.map((pin: DatabasePin) => ({
         id: pin.id,
+        // Convert normalized coordinates back to pixel coordinates
         x: Number(pin.x_normalized) * mapWidth,
         y: Number(pin.y_normalized) * mapHeight,
         label: pin.name,
         color: pin.pin_types?.color || '#FF0000',
         pin_type_id: pin.pin_type_id || undefined,
-        pin_type: pin.pin_types ? {
-          id: pin.pin_types.id,
-          name: pin.pin_types.name,
-          description: pin.pin_types.description,
-          color: pin.pin_types.color,
-          category: pin.pin_types.category,
-          size_modifier: pin.pin_types.size_modifier,
-          icon_url: pin.pin_types.icon_url
-        } : undefined,
+        pin_type: pin.pin_types,
         description: pin.description
       }));
 
@@ -276,8 +268,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Save pin to database
-  const savePinToDatabase = async (pin: LocalPin) => {
+  // Save pin to database with proper coordinate normalization
+  const savePinToDatabase = async (pin: Pin) => {
     if (!selectedMap || selectedMap.id.startsWith('default-')) return;
 
     try {
@@ -289,6 +281,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         pin_type_id: pin.pin_type_id || selectedPinType,
         name: pin.label,
         description: pin.description || null,
+        // Normalize coordinates to 0-1 range for storage
         x_normalized: pin.x / mapWidth,
         y_normalized: pin.y / mapHeight,
         is_visible: true
@@ -321,6 +314,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return null;
       }
 
+      // Return the saved pin with database ID
       return {
         id: data.id,
         x: pin.x,
@@ -328,15 +322,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         label: data.name,
         color: data.pin_types?.color || pin.color,
         pin_type_id: data.pin_type_id,
-        pin_type: data.pin_types ? {
-          id: data.pin_types.id,
-          name: data.pin_types.name,
-          description: data.pin_types.description,
-          color: data.pin_types.color,
-          category: data.pin_types.category,
-          size_modifier: data.pin_types.size_modifier,
-          icon_url: data.pin_types.icon_url
-        } : undefined,
+        pin_type: data.pin_types,
         description: data.description
       };
     } catch (error) {
@@ -346,7 +332,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   // Update pin in database
-  const updatePinInDatabase = async (pin: LocalPin) => {
+  const updatePinInDatabase = async (pin: Pin) => {
     if (!selectedMap || selectedMap.id.startsWith('default-')) return;
 
     try {
@@ -376,11 +362,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Create new pin type
+  // Create new pin type with optional icon upload
   const createPinType = async (name: string, color: string, category: string, iconFile?: File) => {
     try {
       let iconUrl = null;
 
+      // Upload icon if provided
       if (iconFile) {
         const fileExt = iconFile.name.split('.').pop();
         const fileName = `${crypto.randomUUID()}.${fileExt}`;
@@ -481,7 +468,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
       toast({
         title: "Invalid File",
@@ -491,7 +477,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       return;
     }
 
-    // Validate file size (50MB limit)
     if (file.size > 50 * 1024 * 1024) {
       toast({
         title: "File Too Large",
@@ -503,12 +488,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
     setIsUploading(true);
     try {
-      // Generate unique filename
       const fileExt = file.name.split('.').pop();
       const fileName = `${crypto.randomUUID()}.${fileExt}`;
       const filePath = `maps/${fileName}`;
 
-      // Upload to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('maps')
         .upload(filePath, file);
@@ -518,12 +501,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         throw new Error(uploadError.message);
       }
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from('maps')
         .getPublicUrl(filePath);
 
-      // Get image dimensions
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -531,7 +512,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         img.src = URL.createObjectURL(file);
       });
 
-      // Create map record in database
       const mapData = {
         name: file.name.replace(/\.[^/.]+$/, ""),
         description: null,
@@ -552,12 +532,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
       if (dbError) {
         console.error('Database error:', dbError);
-        // Clean up uploaded file if database insert fails
         await supabase.storage.from('maps').remove([filePath]);
         throw new Error(dbError.message);
       }
 
-      // Create MapOption from the new record
       const newMap: MapOption = {
         id: mapRecord.id,
         name: mapRecord.name,
@@ -577,7 +555,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         description: "Map uploaded successfully!",
       });
 
-      // Clean up object URL
       URL.revokeObjectURL(img.src);
 
     } catch (error) {
@@ -589,7 +566,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       });
     } finally {
       setIsUploading(false);
-      // Clear the file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -600,21 +576,22 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const selectMap = (map: MapOption) => {
     setSelectedMap(map);
     setShowMapSelector(false);
-    // Reset map state when switching maps
     setPins([]);
     setMeasurements([]);
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
 
-    // Load data for this map if it's from the database
     if (!map.id.startsWith('default-')) {
       loadPinsForMap(map.id);
       loadMeasurementsForMap(map.id);
     }
   };
 
-  // Pixel to meter conversion
-  const pixelToMeter = 1;
+  // Calculate distance with proper scale
+  const calculateDistance = (x1: number, y1: number, x2: number, y2: number) => {
+    const pixelDistance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    return pixelDistance * scaleSettings.factor;
+  };
 
   // Helper function to get mouse position relative to the image
   const getImageCoordinates = useCallback((clientX: number, clientY: number) => {
@@ -627,13 +604,69 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     return { x, y };
   }, [panOffset, zoom]);
 
-  // Calculate distance between two points
-  const calculateDistance = (x1: number, y1: number, x2: number, y2: number) => {
-    const pixelDistance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-    return pixelDistance * scaleSettings.factor;
+  // Show pin editor for new pin
+  const showPinEditorForNewPin = (x: number, y: number) => {
+    const selectedType = pinTypes.find(type => type.id === selectedPinType);
+    setPinEditorData({
+      label: `${selectedType?.name || 'Pin'} ${pins.length + 1}`,
+      description: '',
+      pin_type_id: selectedPinType || ''
+    });
+    setEditingPin({
+      id: 'new',
+      x,
+      y,
+      label: '',
+      color: selectedType?.color || '#ff0000',
+      pin_type_id: selectedPinType || undefined
+    });
+    setShowPinEditor(true);
   };
 
-  // Memoized image style for performance
+  // Show pin editor for existing pin
+  const showPinEditorForExistingPin = (pin: Pin) => {
+    setPinEditorData({
+      label: pin.label,
+      description: pin.description || '',
+      pin_type_id: pin.pin_type_id || ''
+    });
+    setEditingPin(pin);
+    setShowPinEditor(true);
+  };
+
+  // Save pin from editor
+  const savePinFromEditor = async () => {
+    if (!editingPin) return;
+
+    const updatedPin: Pin = {
+      ...editingPin,
+      label: pinEditorData.label,
+      description: pinEditorData.description,
+      pin_type_id: pinEditorData.pin_type_id,
+      pin_type: pinTypes.find(pt => pt.id === pinEditorData.pin_type_id),
+      color: pinTypes.find(pt => pt.id === pinEditorData.pin_type_id)?.color || editingPin.color
+    };
+
+    if (editingPin.id === 'new') {
+      // Save new pin
+      const savedPin = await savePinToDatabase(updatedPin);
+      if (savedPin) {
+        setPins(prev => [...prev, savedPin]);
+      }
+    } else {
+      // Update existing pin
+      const success = await updatePinInDatabase(updatedPin);
+      if (success) {
+        setPins(prev => prev.map(p => p.id === updatedPin.id ? updatedPin : p));
+      }
+    }
+
+    setShowPinEditor(false);
+    setEditingPin(null);
+    setMode('view');
+  };
+
+  // Memoized styles
   const imageStyle = useMemo(() => ({
     transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
     transformOrigin: '0 0',
@@ -646,7 +679,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     pointerEvents: 'none' as const
   }), [panOffset.x, panOffset.y, zoom]);
 
-  // Container style
   const containerStyle = useMemo(() => ({
     width: '100%',
     height: '100%',
@@ -657,8 +689,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             isDragging ? 'grabbing' : 'grab'
   }), [mode, isDragging]);
 
-  // Pin style helper
-  const getPinStyle = useCallback((pin: LocalPin) => {
+  const getPinStyle = useCallback((pin: Pin) => {
     const pinType = pin.pin_type || pinTypes.find(pt => pt.id === pin.pin_type_id);
     const baseSize = 24;
     const size = baseSize * (pinType?.size_modifier || 1);
@@ -674,7 +705,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     };
   }, [panOffset, zoom, pinTypes]);
 
-  // Mouse wheel zoom handler
+  // Event handlers
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -688,7 +719,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     const newZoom = Math.max(0.1, Math.min(5, zoom + delta));
     
-    // Zoom towards mouse position
     const zoomRatio = newZoom / zoom;
     const newPanX = mouseX - (mouseX - panOffset.x) * zoomRatio;
     const newPanY = mouseY - (mouseY - panOffset.y) * zoomRatio;
@@ -697,7 +727,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     setPanOffset({ x: newPanX, y: newPanY });
   }, [zoom, panOffset]);
 
-  // Mouse down handler
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     
@@ -728,14 +757,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       return;
     }
 
-    // Start dragging for pan mode
     if (mode === 'view') {
       setIsDragging(true);
       setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
     }
-  }, [mode, getImageCoordinates, pins.length, measureStart, panOffset, calculateDistance]);
+  }, [mode, getImageCoordinates, measureStart, panOffset, calculateDistance]);
 
-  // Mouse move handler
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isDragging && mode === 'view') {
       e.preventDefault();
@@ -746,12 +773,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   }, [isDragging, mode, dragStart]);
 
-  // Mouse up handler
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
 
-  // Handle image load - CENTER MAP INITIALLY
   const handleImageLoad = useCallback(() => {
     if (mapContainerRef.current && mapImageRef.current) {
       const container = mapContainerRef.current;
@@ -762,23 +787,28 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       const imageWidth = image.naturalWidth;
       const imageHeight = image.naturalHeight;
       
-      // Center the image
-      const centerX = (containerWidth - imageWidth) / 2;
-      const centerY = (containerHeight - imageHeight) / 2;
+      const scaleX = (containerWidth * 0.8) / imageWidth;
+      const scaleY = (containerHeight * 0.8) / imageHeight;
+      const initialZoom = Math.min(scaleX, scaleY, 1);
       
+      const scaledWidth = imageWidth * initialZoom;
+      const scaledHeight = imageHeight * initialZoom;
+      const centerX = (containerWidth - scaledWidth) / 2;
+      const centerY = (containerHeight - scaledHeight) / 2;
+      
+      setZoom(initialZoom);
       setPanOffset({ 
-        x: Math.max(0, centerX), 
-        y: Math.max(0, centerY) 
+        x: centerX,
+        y: Math.max(20, centerY)
       });
     }
   }, []);
 
-  // Set up wheel event listener
+  // Effects
   useEffect(() => {
     const container = mapContainerRef.current;
     if (!container) return;
 
-    // IMPORTANT: passive: false allows preventDefault()
     container.addEventListener('wheel', handleWheel, { passive: false });
     
     return () => {
@@ -786,7 +816,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     };
   }, [handleWheel]);
 
-  // Global mouse events for dragging
   useEffect(() => {
     const handleGlobalMouseUp = () => setIsDragging(false);
     const handleGlobalMouseMove = (e: MouseEvent) => {
@@ -809,17 +838,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     };
   }, [isDragging, mode, dragStart]);
 
-  // Handle mode changes
   const handleModeChange = (newMode: 'view' | 'add-pin' | 'measure' | 'manage-pins') => {
     setMode(newMode);
     setMeasureStart(null);
   };
 
-  // Remove pin
   const removePin = async (pinId: string) => {
     setPins(prev => prev.filter(p => p.id !== pinId));
     
-    // Remove from database if it's not a default map
     if (selectedMap && !selectedMap.id.startsWith('default-')) {
       try {
         const { error } = await supabase
@@ -835,107 +861,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       }
     }
   };
-
-  // Remove measurement
-  const removeMeasurement = async (measurementId: string) => {
-    setMeasurements(prev => prev.filter(m => m.id !== measurementId));
-    
-    // Remove from database if it's not a default map
-    if (selectedMap && !selectedMap.id.startsWith('default-')) {
-      try {
-        const { error } = await supabase
-          .from('distance_measurements')
-          .delete()
-          .eq('id', measurementId);
-
-        if (error) {
-          console.error('Error removing measurement:', error);
-        }
-      } catch (error) {
-        console.error('Error removing measurement:', error);
-      }
-    }
-  };
-
-  // Show map selector if no map selected
-  if (showMapSelector || !selectedMap) {
-    return (
-      <div className="flex h-screen bg-gray-100">
-        <div className="w-full max-w-4xl mx-auto p-8">
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center gap-3 mb-6">
-              {onBack && (
-                <button
-                  onClick={onBack}
-                  className="flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors"
-                >
-                  <ArrowLeft size={20} />
-                  Back
-                </button>
-              )}
-              <h1 className="text-2xl font-bold text-gray-800">Select a Map</h1>
-            </div>
-
-            {/* Upload Section */}
-            <div className="mb-8">
-              <h2 className="text-lg font-semibold mb-4">Upload New Map</h2>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <Upload size={48} className="mx-auto text-gray-400 mb-4" />
-                <p className="text-gray-600 mb-4">Upload a map image to get started</p>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isUploading ? 'Uploading...' : 'Choose File'}
-                </button>
-              </div>
-            </div>
-
-            {/* Available Maps */}
-            <div>
-              <h2 className="text-lg font-semibold mb-4">
-                Available Maps 
-                {isLoading && <span className="text-sm text-gray-500 ml-2">(Loading...)</span>}
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {availableMaps.map((map) => (
-                  <div
-                    key={map.id}
-                    onClick={() => selectMap(map)}
-                    className="border rounded-lg p-4 cursor-pointer hover:border-blue-500 hover:shadow-md transition-all"
-                  >
-                    <div className="aspect-video bg-gray-200 rounded mb-3 flex items-center justify-center overflow-hidden">
-                      <img
-                        src={map.url}
-                        alt={map.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                      <Map size={48} className="text-gray-400" />
-                    </div>
-                    <h3 className="font-medium text-gray-800">{map.name}</h3>
-                    <p className="text-sm text-gray-500">
-                      {map.width} x {map.height}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // Pin Type Manager Component
   const PinTypeManager = () => {
@@ -980,13 +905,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             onChange={(e) => setNewPinType(prev => ({ ...prev, name: e.target.value }))}
             className="w-full px-2 py-1 border rounded text-sm"
           />
-          
           <div className="flex gap-2">
             <input
               type="color"
               value={newPinType.color}
               onChange={(e) => setNewPinType(prev => ({ ...prev, color: e.target.value }))}
-              className="w-8 h-8 border rounded"
+              className="w-8 h-8 border rounded cursor-pointer"
             />
             <select
               value={newPinType.category}
@@ -995,14 +919,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             >
               <option value="settlement">Settlement</option>
               <option value="location">Location</option>
-              <option value="structure">Structure</option>
               <option value="terrain">Terrain</option>
-              <option value="misc">Misc</option>
+              <option value="gameplay">Gameplay</option>
               <option value="custom">Custom</option>
             </select>
           </div>
-
-          <div className="space-y-1">
+          <div>
             <input
               ref={pinIconInputRef}
               type="file"
@@ -1012,32 +934,34 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             />
             <button
               onClick={() => pinIconInputRef.current?.click()}
-              className="w-full px-2 py-1 border rounded text-sm hover:bg-gray-50"
+              className="w-full px-2 py-1 border rounded text-sm bg-gray-50 hover:bg-gray-100"
             >
               {selectedIcon ? selectedIcon.name : 'Choose Icon (Optional)'}
             </button>
           </div>
-
           <button
             onClick={handleCreatePinType}
-            disabled={!newPinType.name.trim()}
-            className="w-full px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+            className="w-full bg-blue-600 text-white py-1 rounded text-sm hover:bg-blue-700"
           >
             Create Pin Type
           </button>
         </div>
 
-        <div className="space-y-1 max-h-32 overflow-y-auto">
+        <div className="space-y-2 max-h-40 overflow-y-auto">
           {pinTypes.map((pinType) => (
-            <div key={pinType.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
-              <div className="flex items-center gap-2">
-                <div 
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: pinType.color }}
-                />
-                <span>{pinType.name}</span>
-                <span className="text-xs text-gray-500">({pinType.category})</span>
-              </div>
+            <div
+              key={pinType.id}
+              onClick={() => setSelectedPinType(pinType.id)}
+              className={`flex items-center gap-2 p-2 rounded cursor-pointer ${
+                selectedPinType === pinType.id ? 'bg-blue-100' : 'bg-gray-50 hover:bg-gray-100'
+              }`}
+            >
+              <div
+                className="w-4 h-4 rounded-full"
+                style={{ backgroundColor: pinType.color }}
+              />
+              <span className="text-sm font-medium">{pinType.name}</span>
+              <span className="text-xs text-gray-500">({pinType.category})</span>
             </div>
           ))}
         </div>
@@ -1045,68 +969,235 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     );
   };
 
-  // Show pin editor for new pin
-  const showPinEditorForNewPin = (x: number, y: number) => {
-    const selectedType = pinTypes.find(type => type.id === selectedPinType);
-    setPinEditorData({
-      label: `${selectedType?.name || 'Pin'} ${pins.length + 1}`,
-      description: '',
-      pin_type_id: selectedPinType || ''
-    });
-    setEditingPin({
-      id: 'new',
-      x,
-      y,
-      label: '',
-      color: selectedType?.color || '#ff0000',
-      pin_type_id: selectedPinType || undefined
-    });
-    setShowPinEditor(true);
-  };
+  // Scale Settings Component
+  const ScaleSettings = () => {
+    const [tempScale, setTempScale] = useState(scaleSettings);
 
-  // Show pin editor for existing pin
-  const showPinEditorForExistingPin = (pin: LocalPin) => {
-    setPinEditorData({
-      label: pin.label,
-      description: pin.description || '',
-      pin_type_id: pin.pin_type_id || ''
-    });
-    setEditingPin(pin);
-    setShowPinEditor(true);
-  };
-
-  // Save pin from editor
-  const savePinFromEditor = async () => {
-    if (!editingPin) return;
-
-    const updatedPin: LocalPin = {
-      ...editingPin,
-      label: pinEditorData.label,
-      description: pinEditorData.description,
-      pin_type_id: pinEditorData.pin_type_id,
-      pin_type: pinTypes.find(pt => pt.id === pinEditorData.pin_type_id),
-      color: pinTypes.find(pt => pt.id === pinEditorData.pin_type_id)?.color || editingPin.color
+    const handleSaveScale = () => {
+      updateMapScale(tempScale.factor, tempScale.unit);
+      setShowScaleSettings(false);
     };
 
-    if (editingPin.id === 'new') {
-      const savedPin = await savePinToDatabase(updatedPin);
-      if (savedPin) {
-        setPins(prev => [...prev, savedPin]);
-      }
-    } else {
-      const success = await updatePinInDatabase(updatedPin);
-      if (success) {
-        setPins(prev => prev.map(p => p.id === updatedPin.id ? updatedPin : p));
-      }
-    }
-
-    setShowPinEditor(false);
-    setEditingPin(null);
-    setMode('view');
+    return (
+      <div className="absolute top-4 right-4 bg-white p-4 rounded-lg shadow-lg z-20 min-w-64">
+        <h3 className="font-semibold mb-3">Map Scale Settings</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Scale Factor</label>
+            <input
+              type="number"
+              value={tempScale.factor}
+              onChange={(e) => setTempScale(prev => ({ ...prev, factor: parseFloat(e.target.value) || 1 }))}
+              className="w-full px-2 py-1 border rounded text-sm"
+              step="0.1"
+              min="0.1"
+              placeholder="e.g., 1, 0.5, 2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Unit</label>
+            <select
+              value={tempScale.unit}
+              onChange={(e) => setTempScale(prev => ({ ...prev, unit: e.target.value }))}
+              className="w-full px-2 py-1 border rounded text-sm"
+            >
+              <option value="meters">Meters</option>
+              <option value="feet">Feet</option>
+              <option value="yards">Yards</option>
+              <option value="miles">Miles</option>
+              <option value="kilometers">Kilometers</option>
+              <option value="squares">Grid Squares</option>
+              <option value="hexes">Hexes</option>
+            </select>
+          </div>
+          <div className="text-xs text-gray-600">
+            Current: 1 pixel = {scaleSettings.factor} {scaleSettings.unit}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSaveScale}
+              className="flex-1 bg-blue-600 text-white py-1 rounded text-sm hover:bg-blue-700"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => setShowScaleSettings(false)}
+              className="flex-1 bg-gray-300 text-gray-700 py-1 rounded text-sm hover:bg-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
+
+  // Pin Editor Modal
+  const PinEditor = () => {
+    if (!showPinEditor || !editingPin) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">
+              {editingPin.id === 'new' ? 'Add New Pin' : 'Edit Pin'}
+            </h3>
+            <button
+              onClick={() => setShowPinEditor(false)}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Pin Name</label>
+              <input
+                type="text"
+                value={pinEditorData.label}
+                onChange={(e) => setPinEditorData(prev => ({ ...prev, label: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+                placeholder="Enter pin name"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">Description</label>
+              <textarea
+                value={pinEditorData.description}
+                onChange={(e) => setPinEditorData(prev => ({ ...prev, description: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+                placeholder="Enter description (optional)"
+                rows={3}
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-1">Pin Type</label>
+              <select
+                value={pinEditorData.pin_type_id}
+                onChange={(e) => setPinEditorData(prev => ({ ...prev, pin_type_id: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+              >
+                {pinTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name} ({type.category})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          
+          <div className="flex gap-2 mt-6">
+            <button
+              onClick={savePinFromEditor}
+              disabled={!pinEditorData.label.trim()}
+              className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Save size={16} className="inline mr-2" />
+              Save Pin
+            </button>
+            <button
+              onClick={() => setShowPinEditor(false)}
+              className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Show map selector if no map selected
+  if (showMapSelector || !selectedMap) {
+    return (
+      <div className="flex h-screen bg-gray-100">
+        <div className="w-full max-w-4xl mx-auto p-8">
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center gap-3 mb-6">
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  <ArrowLeft size={20} />
+                  Back
+                </button>
+              )}
+              <h1 className="text-2xl font-bold text-gray-800">Select a Map</h1>
+            </div>
+
+            <div className="mb-8">
+              <h2 className="text-lg font-semibold mb-4">Upload New Map</h2>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <Upload size={48} className="mx-auto text-gray-400 mb-4" />
+                <p className="text-gray-600 mb-4">Upload a map image to get started</p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isUploading ? 'Uploading...' : 'Choose File'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-lg font-semibold mb-4">
+                Available Maps 
+                {isLoading && <span className="text-sm text-gray-500 ml-2">(Loading...)</span>}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {availableMaps.map((map) => (
+                  <div
+                    key={map.id}
+                    onClick={() => selectMap(map)}
+                    className="border rounded-lg p-4 cursor-pointer hover:border-blue-500 hover:shadow-md transition-all"
+                  >
+                    <div className="aspect-video bg-gray-200 rounded mb-3 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={map.url}
+                        alt={map.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                      <Map size={48} className="text-gray-400" />
+                    </div>
+                    <h3 className="font-medium text-gray-800">{map.name}</h3>
+                    <p className="text-sm text-gray-500">
+                      {map.width} x {map.height}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Scale: 1px = {map.scale_factor || 1} {map.scale_unit || 'meters'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
+      {/* Pin Editor Modal */}
+      <PinEditor />
+      
+      {/* Sidebar */}
       <div className="w-80 bg-white shadow-lg flex flex-col">
         <div className="p-4 border-b">
           <div className="flex items-center gap-3 mb-2">
@@ -1122,61 +1213,24 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           </div>
           <h2 className="text-xl font-bold text-blue-600">Interactive World Map</h2>
           <p className="text-sm text-gray-600">{selectedMap.name}</p>
-          <button
-            onClick={() => setShowMapSelector(true)}
-            className="text-xs text-blue-600 hover:text-blue-800 mt-1"
-          >
-            Change Map
-          </button>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => setShowMapSelector(true)}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              Change Map
+            </button>
+            <button
+              onClick={() => setShowScaleSettings(true)}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              Scale Settings
+            </button>
+          </div>
         </div>
 
         <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold">Map Tools</h3>
-            <button
-              onClick={() => setShowScaleSettings(!showScaleSettings)}
-              className="p-1 text-gray-600 hover:text-gray-800"
-              title="Scale Settings"
-            >
-              <Settings size={16} />
-            </button>
-          </div>
-
-          {showScaleSettings && (
-            <div className="mb-4 p-3 bg-gray-50 rounded">
-              <h4 className="text-sm font-medium mb-2">Map Scale</h4>
-              <div className="space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    value={scaleSettings.factor}
-                    onChange={(e) => setScaleSettings(prev => ({ ...prev, factor: parseFloat(e.target.value) || 1 }))}
-                    className="flex-1 px-2 py-1 border rounded text-sm"
-                    step="0.1"
-                    min="0.1"
-                  />
-                  <select
-                    value={scaleSettings.unit}
-                    onChange={(e) => setScaleSettings(prev => ({ ...prev, unit: e.target.value }))}
-                    className="px-2 py-1 border rounded text-sm"
-                  >
-                    <option value="meters">meters</option>
-                    <option value="feet">feet</option>
-                    <option value="miles">miles</option>
-                    <option value="km">kilometers</option>
-                  </select>
-                </div>
-                <button
-                  onClick={() => updateMapScale(scaleSettings.factor, scaleSettings.unit)}
-                  className="w-full px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                >
-                  <Save size={12} className="inline mr-1" />
-                  Save Scale
-                </button>
-              </div>
-            </div>
-          )}
-
+          <h3 className="font-semibold mb-3">Map Tools</h3>
           <div className="space-y-2">
             <button
               onClick={() => handleModeChange('view')}
@@ -1212,9 +1266,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               Measure Distance
             </button>
             <button
-              onClick={() => setShowPinTypeManager(!showPinTypeManager)}
+              onClick={() => handleModeChange('manage-pins')}
               className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm font-medium ${
-                showPinTypeManager 
+                mode === 'manage-pins' 
                   ? 'bg-purple-600 text-white' 
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
@@ -1226,7 +1280,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
           {mode === 'add-pin' && pinTypes.length > 0 && (
             <div className="mt-4">
-              <label className="block text-sm font-medium mb-2">Pin Type:</label>
+              <label className="block text-sm font-medium mb-2">Selected Pin Type:</label>
               <select
                 value={selectedPinType || ''}
                 onChange={(e) => setSelectedPinType(e.target.value)}
@@ -1234,7 +1288,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               >
                 {pinTypes.map((type) => (
                   <option key={type.id} value={type.id}>
-                    {type.name}
+                    {type.name} ({type.category})
                   </option>
                 ))}
               </select>
@@ -1242,7 +1296,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           )}
         </div>
 
-        {showPinTypeManager && <PinTypeManager />}
+        {mode === 'manage-pins' && <PinTypeManager />}
 
         <div className="p-4 border-b flex-1">
           <div className="flex justify-between items-center mb-2">
@@ -1264,28 +1318,26 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 <div key={pin.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                   <div className="flex items-center gap-2 flex-1">
                     <div 
-                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      className="w-3 h-3 rounded-full"
                       style={{ backgroundColor: pin.color }}
                     />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm block truncate">{pin.label}</span>
-                      {pin.pin_type && (
-                        <span className="text-xs text-gray-500">{pin.pin_type.name}</span>
-                      )}
+                    <div className="flex flex-col flex-1">
+                      <span className="text-sm font-medium">{pin.label}</span>
+                      <span className="text-xs text-gray-500">{pin.pin_type?.name}</span>
                     </div>
                   </div>
                   <div className="flex gap-1">
                     <button
                       onClick={() => showPinEditorForExistingPin(pin)}
                       className="text-blue-500 hover:text-blue-700 text-xs p-1"
-                      title="Edit"
+                      title="Edit pin"
                     >
                       <Edit3 size={12} />
                     </button>
                     <button
                       onClick={() => removePin(pin.id)}
                       className="text-red-500 hover:text-red-700 text-xs p-1"
-                      title="Remove"
+                      title="Remove pin"
                     >
                       <X size={12} />
                     </button>
@@ -1314,9 +1366,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <div className="space-y-2 max-h-32 overflow-y-auto">
               {measurements.map((measurement) => (
                 <div key={measurement.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                  <span className="text-sm">{measurement.distance.toFixed(1)} {scaleSettings.unit}</span>
+                  <span className="text-sm">
+                    {measurement.distance.toFixed(1)} {scaleSettings.unit}
+                  </span>
                   <button
-                    onClick={() => removeMeasurement(measurement.id)}
+                    onClick={() => setMeasurements(prev => prev.filter(m => m.id !== measurement.id))}
                     className="text-red-500 hover:text-red-700 text-xs"
                   >
                     Remove
@@ -1330,12 +1384,17 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         <div className="p-4 text-xs text-gray-600 space-y-1">
           <p>🖱️ Click and drag to pan</p>
           <p>🔍 Scroll to zoom</p>
-          <p>📍 Hover over pins for details</p>
-          <p className="mt-2 font-medium">Scale: 1 pixel = {scaleSettings.factor} {scaleSettings.unit}</p>
+          <p>📍 Click pins to edit</p>
+          <p className="mt-2 font-medium">
+            Scale: 1 pixel = {scaleSettings.factor} {scaleSettings.unit}
+          </p>
         </div>
       </div>
 
+      {/* Map Container */}
       <div className="flex-1 relative overflow-hidden">
+        {showScaleSettings && <ScaleSettings />}
+
         <div
           ref={mapContainerRef}
           style={containerStyle}
@@ -1352,13 +1411,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               </div>
             )}
             {mode === 'add-pin' && <span>📍 Click anywhere to add a pin</span>}
-            {mode === 'measure' && (
-              <span>📏 Click two points to measure distance</span>
-            )}
+            {mode === 'measure' && <span>📏 Click two points to measure distance</span>}
+            {mode === 'manage-pins' && <span>🎨 Managing pin types - use sidebar</span>}
           </div>
 
           <div className="absolute bottom-4 left-4 bg-white bg-opacity-90 px-2 py-1 rounded text-sm font-mono z-10">
-            Scale: 1 pixel = {scaleSettings.factor} {scaleSettings.unit} | Zoom: {(zoom * 100).toFixed(0)}%
+            Scale: 1px = {scaleSettings.factor} {scaleSettings.unit} | Zoom: {(zoom * 100).toFixed(0)}%
           </div>
 
           <img
@@ -1371,34 +1429,46 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             onLoad={handleImageLoad}
           />
 
-          {pins.map((pin) => (
-            <div
-              key={pin.id}
-              style={getPinStyle(pin)}
-              title={`${pin.label}${pin.description ? ` - ${pin.description}` : ''}`}
-              onClick={() => mode === 'manage-pins' && showPinEditorForExistingPin(pin)}
-            >
-              <div className="relative">
-                {pin.pin_type?.icon_url ? (
-                  <img 
-                    src={pin.pin_type.icon_url} 
-                    alt={pin.label}
-                    className="w-6 h-6 drop-shadow-lg"
-                  />
-                ) : (
-                  <MapPin 
-                    size={24} 
-                    fill={pin.color} 
-                    color={pin.color}
-                    className="drop-shadow-lg"
-                  />
-                )}
-                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-black text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity pointer-events-none">
-                  {pin.label}
+          {pins.map((pin) => {
+            const pinType = pin.pin_type || pinTypes.find(pt => pt.id === pin.pin_type_id);
+            return (
+              <div
+                key={pin.id}
+                style={getPinStyle(pin)}
+                title={`${pin.label} (${pinType?.name || 'Unknown'})`}
+                onClick={() => showPinEditorForExistingPin(pin)}
+                className="cursor-pointer"
+              >
+                <div className="relative">
+                  {pinType?.icon_url ? (
+                    <img
+                      src={pinType.icon_url}
+                      alt={pinType.name}
+                      style={{
+                        width: 24 * (pinType.size_modifier || 1),
+                        height: 24 * (pinType.size_modifier || 1),
+                        filter: `drop-shadow(2px 2px 4px rgba(0,0,0,0.3))`
+                      }}
+                    />
+                  ) : (
+                    <MapPin 
+                      size={24 * (pinType?.size_modifier || 1)} 
+                      fill={pinType?.color || pin.color} 
+                      color={pinType?.color || pin.color}
+                      className="drop-shadow-lg"
+                    />
+                  )}
+                  <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity pointer-events-none z-10">
+                    <div className="font-medium">{pin.label}</div>
+                    {pin.description && (
+                      <div className="text-gray-300">{pin.description}</div>
+                    )}
+                    <div className="text-gray-400">{pinType?.name}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {measurements.map((measurement) => (
             <svg
@@ -1440,76 +1510,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           )}
         </div>
       </div>
-
-      {showPinEditor && editingPin && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">
-              {editingPin.id === 'new' ? 'Add New Pin' : 'Edit Pin'}
-            </h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Name</label>
-                <input
-                  type="text"
-                  value={pinEditorData.label}
-                  onChange={(e) => setPinEditorData(prev => ({ ...prev, label: e.target.value }))}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="Pin name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
-                <textarea
-                  value={pinEditorData.description}
-                  onChange={(e) => setPinEditorData(prev => ({ ...prev, description: e.target.value }))}
-                  className="w-full px-3 py-2 border rounded"
-                  rows={3}
-                  placeholder="Optional description"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Pin Type</label>
-                <select
-                  value={pinEditorData.pin_type_id}
-                  onChange={(e) => setPinEditorData(prev => ({ ...prev, pin_type_id: e.target.value }))}
-                  className="w-full px-3 py-2 border rounded"
-                >
-                  {pinTypes.map((type) => (
-                    <option key={type.id} value={type.id}>
-                      {type.name} ({type.category})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={savePinFromEditor}
-                disabled={!pinEditorData.label.trim()}
-                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-              >
-                <Save size={16} className="inline mr-2" />
-                Save
-              </button>
-              <button
-                onClick={() => {
-                  setShowPinEditor(false);
-                  setEditingPin(null);
-                  setMode('view');
-                }}
-                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
