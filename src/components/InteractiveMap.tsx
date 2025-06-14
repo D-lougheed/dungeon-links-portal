@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Ruler, MapPin, Eye, Plus } from 'lucide-react';
+import { Ruler, MapPin, Eye, Plus, ArrowLeft } from 'lucide-react';
 
 interface Pin {
   id: string;
@@ -19,15 +19,17 @@ interface Measurement {
 }
 
 interface InteractiveMapProps {
-  imageUrl: string;
+  imageUrl?: string;
   imageWidth?: number;
   imageHeight?: number;
+  onBack?: () => void;
 }
 
-export const InteractiveMap: React.FC<InteractiveMapProps> = ({
-  imageUrl,
+const InteractiveMap: React.FC<InteractiveMapProps> = ({
+  imageUrl = "/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png",
   imageWidth = 2000,
-  imageHeight = 1500
+  imageHeight = 1500,
+  onBack
 }) => {
   // State management
   const [zoom, setZoom] = useState(1);
@@ -261,6 +263,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       {/* Sidebar */}
       <div className="w-80 bg-white shadow-lg flex flex-col">
         <div className="p-4 border-b">
+          <div className="flex items-center gap-3 mb-2">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors"
+              >
+                <ArrowLeft size={20} />
+                Back
+              </button>
+            )}
+          </div>
           <h2 className="text-xl font-bold text-blue-600">Interactive World Map</h2>
           <p className="text-sm text-gray-600">The Slumbering Ancients 100+ 6k</p>
         </div>
@@ -490,3 +503,5 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     </div>
   );
 };
+
+export default InteractiveMap;
