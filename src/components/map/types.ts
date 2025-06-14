@@ -1,3 +1,4 @@
+// src/components/map/types.ts
 
 export interface Map {
   id: string;
@@ -12,6 +13,7 @@ export interface Map {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  thumbnail_url?: string; // Add this optional property for MapSelector
 }
 
 export interface PinType {
@@ -21,29 +23,63 @@ export interface PinType {
   color: string;
   category: string;
   size_modifier: number;
-  icon_url?: string;
+  icon_url?: string | null; // Make this optional and nullable
   is_active: boolean;
   created_at: string;
 }
 
-export interface Pin {
+// Database Pin structure (what comes from Supabase)
+export interface DatabasePin {
   id: string;
   map_id: string;
   pin_type_id: string;
   name: string;
+  label: string; // Add this since your database might have both
   description: string | null;
   x_normalized: number;
   y_normalized: number;
   is_visible: boolean;
   created_at: string;
-  pin_types?: PinType; // This matches the Supabase join result
+  created_by: string;
+  updated_at: string;
+  external_link: string;
+  metadata: any; // Json type from Supabase
+  pin_types?: {
+    id: string;
+    name: string;
+    description: string | null;
+    color: string;
+    category: string;
+    size_modifier: number;
+    icon_url?: string | null;
+  };
 }
 
-// Local interface for pins with loaded pin_type data
-export interface LocalPin extends Pin {
-  pin_type?: PinType; // Optional for when pin_type data is loaded separately
+// Internal Pin interface (used in component)
+export interface Pin {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+  color: string;
+  pin_type_id?: string;
+  pin_type?: PinType;
+  description?: string;
 }
 
+// Database DistanceMeasurement structure
+export interface DatabaseDistanceMeasurement {
+  id: string;
+  map_id: string;
+  name: string;
+  points: any; // Json type from Supabase
+  total_distance: number;
+  unit: string;
+  created_at: string;
+  created_by: string;
+}
+
+// Internal DistanceMeasurement interface
 export interface DistanceMeasurement {
   id: string;
   map_id: string;
