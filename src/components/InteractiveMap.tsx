@@ -113,7 +113,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           pin_types (
             id,
             name,
+            description,
             color,
+            category,
             size_modifier
           )
         `)
