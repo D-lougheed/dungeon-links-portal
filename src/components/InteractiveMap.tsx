@@ -4,14 +4,15 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Map as MapType, Pin as DatabasePin, PinType, DistanceMeasurement } from './map/types';
 
-interface Pin {
+// Local Pin interface for the map component - simplified from database Pin
+interface LocalPin {
   id: string;
   x: number;
   y: number;
   label: string;
   color: string;
   pin_type_id?: string;
-  pin_type?: PinType;
+  pin_type?: Partial<PinType>; // Make pin_type partial to handle incomplete data
   description?: string;
 }
 
@@ -44,7 +45,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   // State management
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [pins, setPins] = useState<Pin[]>([]);
+  const [pins, setPins] = useState<LocalPin[]>([]);
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -62,7 +63,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [pinTypes, setPinTypes] = useState<PinType[]>([]);
   const [selectedPinType, setSelectedPinType] = useState<string | null>(null);
   const [showPinEditor, setShowPinEditor] = useState(false);
-  const [editingPin, setEditingPin] = useState<Pin | null>(null);
+  const [editingPin, setEditingPin] = useState<LocalPin | null>(null);
   const [showScaleSettings, setShowScaleSettings] = useState(false);
   const [showPinTypeManager, setShowPinTypeManager] = useState(false);
 
@@ -165,14 +166,22 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       const mapWidth = selectedMap?.width || 1;
       const mapHeight = selectedMap?.height || 1;
 
-      const convertedPins: Pin[] = data.map((pin: DatabasePin) => ({
+      const convertedPins: LocalPin[] = data.map((pin: DatabasePin) => ({
         id: pin.id,
         x: Number(pin.x_normalized) * mapWidth,
         y: Number(pin.y_normalized) * mapHeight,
         label: pin.name,
         color: pin.pin_types?.color || '#FF0000',
         pin_type_id: pin.pin_type_id || undefined,
-        pin_type: pin.pin_types,
+        pin_type: pin.pin_types ? {
+          id: pin.pin_types.id,
+          name: pin.pin_types.name,
+          description: pin.pin_types.description,
+          color: pin.pin_types.color,
+          category: pin.pin_types.category,
+          size_modifier: pin.pin_types.size_modifier,
+          icon_url: pin.pin_types.icon_url
+        } : undefined,
         description: pin.description
       }));
 
@@ -268,7 +277,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   // Save pin to database
-  const savePinToDatabase = async (pin: Pin) => {
+  const savePinToDatabase = async (pin: LocalPin) => {
     if (!selectedMap || selectedMap.id.startsWith('default-')) return;
 
     try {
@@ -319,7 +328,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         label: data.name,
         color: data.pin_types?.color || pin.color,
         pin_type_id: data.pin_type_id,
-        pin_type: data.pin_types,
+        pin_type: data.pin_types ? {
+          id: data.pin_types.id,
+          name: data.pin_types.name,
+          description: data.pin_types.description,
+          color: data.pin_types.color,
+          category: data.pin_types.category,
+          size_modifier: data.pin_types.size_modifier,
+          icon_url: data.pin_types.icon_url
+        } : undefined,
         description: data.description
       };
     } catch (error) {
@@ -329,7 +346,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   // Update pin in database
-  const updatePinInDatabase = async (pin: Pin) => {
+  const updatePinInDatabase = async (pin: LocalPin) => {
     if (!selectedMap || selectedMap.id.startsWith('default-')) return;
 
     try {
@@ -641,7 +658,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   }), [mode, isDragging]);
 
   // Pin style helper
-  const getPinStyle = useCallback((pin: Pin) => {
+  const getPinStyle = useCallback((pin: LocalPin) => {
     const pinType = pin.pin_type || pinTypes.find(pt => pt.id === pin.pin_type_id);
     const baseSize = 24;
     const size = baseSize * (pinType?.size_modifier || 1);
@@ -1048,7 +1065,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   // Show pin editor for existing pin
-  const showPinEditorForExistingPin = (pin: Pin) => {
+  const showPinEditorForExistingPin = (pin: LocalPin) => {
     setPinEditorData({
       label: pin.label,
       description: pin.description || '',
@@ -1062,7 +1079,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const savePinFromEditor = async () => {
     if (!editingPin) return;
 
-    const updatedPin: Pin = {
+    const updatedPin: LocalPin = {
       ...editingPin,
       label: pinEditorData.label,
       description: pinEditorData.description,
