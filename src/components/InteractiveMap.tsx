@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map } from 'lucide-react';
+import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map, Settings, Edit3, Palette, Save, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Map as MapType, Pin as DatabasePin, PinType, DistanceMeasurement } from './map/types';
@@ -11,6 +11,8 @@ interface Pin {
   label: string;
   color: string;
   pin_type_id?: string;
+  pin_type?: PinType;
+  description?: string;
 }
 
 interface Measurement {
@@ -28,6 +30,8 @@ interface MapOption {
   url: string;
   width?: number;
   height?: number;
+  scale_factor?: number;
+  scale_unit?: string;
 }
 
 interface InteractiveMapProps {
@@ -44,7 +48,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [mode, setMode] = useState<'view' | 'add-pin' | 'measure'>('view');
+  const [mode, setMode] = useState<'view' | 'add-pin' | 'measure' | 'manage-pins'>('view');
   const [measureStart, setMeasureStart] = useState<{ x: number; y: number } | null>(null);
   
   // Map selection state
@@ -54,14 +58,32 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [showMapSelector, setShowMapSelector] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Pin types from database
+  // Pin types and management
   const [pinTypes, setPinTypes] = useState<PinType[]>([]);
   const [selectedPinType, setSelectedPinType] = useState<string | null>(null);
+  const [showPinEditor, setShowPinEditor] = useState(false);
+  const [editingPin, setEditingPin] = useState<Pin | null>(null);
+  const [showScaleSettings, setShowScaleSettings] = useState(false);
+  const [showPinTypeManager, setShowPinTypeManager] = useState(false);
+
+  // Pin editor state
+  const [pinEditorData, setPinEditorData] = useState({
+    label: '',
+    description: '',
+    pin_type_id: ''
+  });
+
+  // Scale settings
+  const [scaleSettings, setScaleSettings] = useState({
+    factor: 1,
+    unit: 'meters'
+  });
 
   // Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapImageRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pinIconInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize with default maps and load from Supabase
   useEffect(() => {
@@ -71,7 +93,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         name: 'The Slumbering Ancients',
         url: '/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png',
         width: 2000,
-        height: 1500
+        height: 1500,
+        scale_factor: 1,
+        scale_unit: 'meters'
       }
     ];
     
@@ -79,6 +103,16 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     loadMapsFromSupabase();
     loadPinTypes();
   }, []);
+
+  // Update scale settings when map changes
+  useEffect(() => {
+    if (selectedMap) {
+      setScaleSettings({
+        factor: selectedMap.scale_factor || 1,
+        unit: selectedMap.scale_unit || 'meters'
+      });
+    }
+  }, [selectedMap]);
 
   // Load pin types from database
   const loadPinTypes = async () => {
@@ -116,7 +150,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             description,
             color,
             category,
-            size_modifier
+            size_modifier,
+            icon_url
           )
         `)
         .eq('map_id', mapId)
@@ -127,13 +162,18 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return;
       }
 
+      const mapWidth = selectedMap?.width || 1;
+      const mapHeight = selectedMap?.height || 1;
+
       const convertedPins: Pin[] = data.map((pin: DatabasePin) => ({
         id: pin.id,
-        x: Number(pin.x_normalized) * (selectedMap?.width || 1),
-        y: Number(pin.y_normalized) * (selectedMap?.height || 1),
+        x: Number(pin.x_normalized) * mapWidth,
+        y: Number(pin.y_normalized) * mapHeight,
         label: pin.name,
         color: pin.pin_types?.color || '#FF0000',
-        pin_type_id: pin.pin_type_id || undefined
+        pin_type_id: pin.pin_type_id || undefined,
+        pin_type: pin.pin_types,
+        description: pin.description
       }));
 
       setPins(convertedPins);
@@ -155,15 +195,18 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return;
       }
 
+      const mapWidth = selectedMap?.width || 1;
+      const mapHeight = selectedMap?.height || 1;
+
       const convertedMeasurements: Measurement[] = data.map((measurement: DistanceMeasurement) => {
         const points = measurement.points;
         if (points.length >= 2) {
           return {
             id: measurement.id,
-            startX: points[0].x * (selectedMap?.width || 1),
-            startY: points[0].y * (selectedMap?.height || 1),
-            endX: points[1].x * (selectedMap?.width || 1),
-            endY: points[1].y * (selectedMap?.height || 1),
+            startX: points[0].x * mapWidth,
+            startY: points[0].y * mapHeight,
+            endX: points[1].x * mapWidth,
+            endY: points[1].y * mapHeight,
             distance: measurement.total_distance || 0
           };
         }
@@ -202,7 +245,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         name: map.name,
         url: map.image_url,
         width: map.width,
-        height: map.height
+        height: map.height,
+        scale_factor: map.scale_factor,
+        scale_unit: map.scale_unit
       }));
       
       setAvailableMaps(prev => {
@@ -227,19 +272,35 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     if (!selectedMap || selectedMap.id.startsWith('default-')) return;
 
     try {
+      const mapWidth = selectedMap.width || 1;
+      const mapHeight = selectedMap.height || 1;
+
       const pinData = {
         map_id: selectedMap.id,
         pin_type_id: pin.pin_type_id || selectedPinType,
         name: pin.label,
-        description: null,
-        x_normalized: pin.x / (selectedMap.width || 1),
-        y_normalized: pin.y / (selectedMap.height || 1),
+        description: pin.description || null,
+        x_normalized: pin.x / mapWidth,
+        y_normalized: pin.y / mapHeight,
         is_visible: true
       };
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('pins')
-        .insert(pinData);
+        .insert(pinData)
+        .select(`
+          *,
+          pin_types (
+            id,
+            name,
+            description,
+            color,
+            category,
+            size_modifier,
+            icon_url
+          )
+        `)
+        .single();
 
       if (error) {
         console.error('Error saving pin:', error);
@@ -248,48 +309,153 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           description: "Failed to save pin to database",
           variant: "destructive",
         });
+        return null;
       }
+
+      return {
+        id: data.id,
+        x: pin.x,
+        y: pin.y,
+        label: data.name,
+        color: data.pin_types?.color || pin.color,
+        pin_type_id: data.pin_type_id,
+        pin_type: data.pin_types,
+        description: data.description
+      };
     } catch (error) {
       console.error('Error saving pin:', error);
+      return null;
     }
   };
 
-  // Save measurement to database
-  const saveMeasurementToDatabase = async (measurement: Measurement) => {
+  // Update pin in database
+  const updatePinInDatabase = async (pin: Pin) => {
     if (!selectedMap || selectedMap.id.startsWith('default-')) return;
 
     try {
-      const measurementData = {
-        map_id: selectedMap.id,
-        name: `Distance ${measurements.length + 1}`,
-        points: [
-          {
-            x: measurement.startX / (selectedMap.width || 1),
-            y: measurement.startY / (selectedMap.height || 1)
-          },
-          {
-            x: measurement.endX / (selectedMap.width || 1),
-            y: measurement.endY / (selectedMap.height || 1)
-          }
-        ],
-        total_distance: measurement.distance,
-        unit: 'meters'
-      };
-
       const { error } = await supabase
-        .from('distance_measurements')
-        .insert(measurementData);
+        .from('pins')
+        .update({
+          name: pin.label,
+          description: pin.description,
+          pin_type_id: pin.pin_type_id
+        })
+        .eq('id', pin.id);
 
       if (error) {
-        console.error('Error saving measurement:', error);
+        console.error('Error updating pin:', error);
         toast({
           title: "Error",
-          description: "Failed to save measurement to database",
+          description: "Failed to update pin",
           variant: "destructive",
         });
+        return false;
       }
+
+      return true;
     } catch (error) {
-      console.error('Error saving measurement:', error);
+      console.error('Error updating pin:', error);
+      return false;
+    }
+  };
+
+  // Create new pin type
+  const createPinType = async (name: string, color: string, category: string, iconFile?: File) => {
+    try {
+      let iconUrl = null;
+
+      if (iconFile) {
+        const fileExt = iconFile.name.split('.').pop();
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        const filePath = `pin-icons/${fileName}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('maps')
+          .upload(filePath, iconFile);
+
+        if (uploadError) {
+          console.error('Icon upload error:', uploadError);
+        } else {
+          const { data: urlData } = supabase.storage
+            .from('maps')
+            .getPublicUrl(filePath);
+          iconUrl = urlData.publicUrl;
+        }
+      }
+
+      const pinTypeData = {
+        name,
+        color,
+        category,
+        description: null,
+        size_modifier: 1.0,
+        icon_url: iconUrl,
+        is_active: true
+      };
+
+      const { data, error } = await supabase
+        .from('pin_types')
+        .insert(pinTypeData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating pin type:', error);
+        toast({
+          title: "Error",
+          description: "Failed to create pin type",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setPinTypes(prev => [...prev, data]);
+      setSelectedPinType(data.id);
+      toast({
+        title: "Success",
+        description: "Pin type created successfully!",
+      });
+    } catch (error) {
+      console.error('Error creating pin type:', error);
+    }
+  };
+
+  // Update map scale
+  const updateMapScale = async (scaleFactor: number, scaleUnit: string) => {
+    if (!selectedMap || selectedMap.id.startsWith('default-')) return;
+
+    try {
+      const { error } = await supabase
+        .from('maps')
+        .update({ 
+          scale_factor: scaleFactor,
+          scale_unit: scaleUnit 
+        })
+        .eq('id', selectedMap.id);
+
+      if (error) {
+        console.error('Error updating map scale:', error);
+        toast({
+          title: "Error",
+          description: "Failed to update map scale",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setScaleSettings({ factor: scaleFactor, unit: scaleUnit });
+      setSelectedMap(prev => prev ? { 
+        ...prev, 
+        scale_factor: scaleFactor, 
+        scale_unit: scaleUnit 
+      } : null);
+      
+      toast({
+        title: "Success",
+        description: "Map scale updated successfully!",
+      });
+    } catch (error) {
+      console.error('Error updating map scale:', error);
     }
   };
 
@@ -380,7 +546,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         name: mapRecord.name,
         url: mapRecord.image_url,
         width: mapRecord.width,
-        height: mapRecord.height
+        height: mapRecord.height,
+        scale_factor: mapRecord.scale_factor,
+        scale_unit: mapRecord.scale_unit
       };
 
       setAvailableMaps(prev => [newMap, ...prev]);
@@ -444,7 +612,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   // Calculate distance between two points
   const calculateDistance = (x1: number, y1: number, x2: number, y2: number) => {
-    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2)) * pixelToMeter;
+    const pixelDistance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    return pixelDistance * scaleSettings.factor;
   };
 
   // Memoized image style for performance
@@ -472,15 +641,21 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   }), [mode, isDragging]);
 
   // Pin style helper
-  const getPinStyle = useCallback((pin: Pin) => ({
-    position: 'absolute' as const,
-    left: `${panOffset.x + pin.x * zoom - 12}px`,
-    top: `${panOffset.y + pin.y * zoom - 24}px`,
-    transform: `scale(${Math.max(0.5, Math.min(1.5, zoom))})`,
-    transformOrigin: 'center bottom',
-    pointerEvents: 'auto' as const,
-    zIndex: 1000
-  }), [panOffset, zoom]);
+  const getPinStyle = useCallback((pin: Pin) => {
+    const pinType = pin.pin_type || pinTypes.find(pt => pt.id === pin.pin_type_id);
+    const baseSize = 24;
+    const size = baseSize * (pinType?.size_modifier || 1);
+    
+    return {
+      position: 'absolute' as const,
+      left: `${panOffset.x + pin.x * zoom - size/2}px`,
+      top: `${panOffset.y + pin.y * zoom - size}px`,
+      transform: `scale(${Math.max(0.5, Math.min(1.5, zoom))})`,
+      transformOrigin: 'center bottom',
+      pointerEvents: 'auto' as const,
+      zIndex: 1000
+    };
+  }, [panOffset, zoom, pinTypes]);
 
   // Mouse wheel zoom handler
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -511,18 +686,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     
     if (mode === 'add-pin') {
       const coords = getImageCoordinates(e.clientX, e.clientY);
-      const selectedType = pinTypes.find(type => type.id === selectedPinType);
-      const newPin: Pin = {
-        id: Date.now().toString(),
-        x: coords.x,
-        y: coords.y,
-        label: `Pin ${pins.length + 1}`,
-        color: selectedType?.color || '#ff0000',
-        pin_type_id: selectedPinType || undefined
-      };
-      setPins(prev => [...prev, newPin]);
-      savePinToDatabase(newPin);
-      setMode('view');
+      showPinEditorForNewPin(coords.x, coords.y);
       return;
     }
 
@@ -541,7 +705,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           distance
         };
         setMeasurements(prev => [...prev, newMeasurement]);
-        saveMeasurementToDatabase(newMeasurement);
         setMeasureStart(null);
         setMode('view');
       }
@@ -553,7 +716,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       setIsDragging(true);
       setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
     }
-  }, [mode, getImageCoordinates, pins.length, measureStart, panOffset, selectedPinType, pinTypes]);
+  }, [mode, getImageCoordinates, pins.length, measureStart, panOffset, calculateDistance]);
 
   // Mouse move handler
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -630,7 +793,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   }, [isDragging, mode, dragStart]);
 
   // Handle mode changes
-  const handleModeChange = (newMode: 'view' | 'add-pin' | 'measure') => {
+  const handleModeChange = (newMode: 'view' | 'add-pin' | 'measure' | 'manage-pins') => {
     setMode(newMode);
     setMeasureStart(null);
   };
@@ -757,6 +920,174 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     );
   }
 
+  // Pin Type Manager Component
+  const PinTypeManager = () => {
+    const [newPinType, setNewPinType] = useState({
+      name: '',
+      color: '#FF6B6B',
+      category: 'custom'
+    });
+    const [selectedIcon, setSelectedIcon] = useState<File | null>(null);
+
+    const handleCreatePinType = async () => {
+      if (newPinType.name.trim()) {
+        await createPinType(newPinType.name, newPinType.color, newPinType.category, selectedIcon || undefined);
+        setNewPinType({
+          name: '',
+          color: '#FF6B6B',
+          category: 'custom'
+        });
+        setSelectedIcon(null);
+        if (pinIconInputRef.current) {
+          pinIconInputRef.current.value = '';
+        }
+      }
+    };
+
+    const handleIconSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file && file.type.startsWith('image/')) {
+        setSelectedIcon(file);
+      }
+    };
+
+    return (
+      <div className="p-4 border-b">
+        <h3 className="font-semibold mb-3">Pin Type Manager</h3>
+        
+        <div className="mb-4 space-y-2">
+          <input
+            type="text"
+            placeholder="Pin type name"
+            value={newPinType.name}
+            onChange={(e) => setNewPinType(prev => ({ ...prev, name: e.target.value }))}
+            className="w-full px-2 py-1 border rounded text-sm"
+          />
+          
+          <div className="flex gap-2">
+            <input
+              type="color"
+              value={newPinType.color}
+              onChange={(e) => setNewPinType(prev => ({ ...prev, color: e.target.value }))}
+              className="w-8 h-8 border rounded"
+            />
+            <select
+              value={newPinType.category}
+              onChange={(e) => setNewPinType(prev => ({ ...prev, category: e.target.value }))}
+              className="flex-1 px-2 py-1 border rounded text-sm"
+            >
+              <option value="settlement">Settlement</option>
+              <option value="location">Location</option>
+              <option value="structure">Structure</option>
+              <option value="terrain">Terrain</option>
+              <option value="misc">Misc</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <input
+              ref={pinIconInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleIconSelect}
+              className="hidden"
+            />
+            <button
+              onClick={() => pinIconInputRef.current?.click()}
+              className="w-full px-2 py-1 border rounded text-sm hover:bg-gray-50"
+            >
+              {selectedIcon ? selectedIcon.name : 'Choose Icon (Optional)'}
+            </button>
+          </div>
+
+          <button
+            onClick={handleCreatePinType}
+            disabled={!newPinType.name.trim()}
+            className="w-full px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            Create Pin Type
+          </button>
+        </div>
+
+        <div className="space-y-1 max-h-32 overflow-y-auto">
+          {pinTypes.map((pinType) => (
+            <div key={pinType.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: pinType.color }}
+                />
+                <span>{pinType.name}</span>
+                <span className="text-xs text-gray-500">({pinType.category})</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Show pin editor for new pin
+  const showPinEditorForNewPin = (x: number, y: number) => {
+    const selectedType = pinTypes.find(type => type.id === selectedPinType);
+    setPinEditorData({
+      label: `${selectedType?.name || 'Pin'} ${pins.length + 1}`,
+      description: '',
+      pin_type_id: selectedPinType || ''
+    });
+    setEditingPin({
+      id: 'new',
+      x,
+      y,
+      label: '',
+      color: selectedType?.color || '#ff0000',
+      pin_type_id: selectedPinType || undefined
+    });
+    setShowPinEditor(true);
+  };
+
+  // Show pin editor for existing pin
+  const showPinEditorForExistingPin = (pin: Pin) => {
+    setPinEditorData({
+      label: pin.label,
+      description: pin.description || '',
+      pin_type_id: pin.pin_type_id || ''
+    });
+    setEditingPin(pin);
+    setShowPinEditor(true);
+  };
+
+  // Save pin from editor
+  const savePinFromEditor = async () => {
+    if (!editingPin) return;
+
+    const updatedPin: Pin = {
+      ...editingPin,
+      label: pinEditorData.label,
+      description: pinEditorData.description,
+      pin_type_id: pinEditorData.pin_type_id,
+      pin_type: pinTypes.find(pt => pt.id === pinEditorData.pin_type_id),
+      color: pinTypes.find(pt => pt.id === pinEditorData.pin_type_id)?.color || editingPin.color
+    };
+
+    if (editingPin.id === 'new') {
+      const savedPin = await savePinToDatabase(updatedPin);
+      if (savedPin) {
+        setPins(prev => [...prev, savedPin]);
+      }
+    } else {
+      const success = await updatePinInDatabase(updatedPin);
+      if (success) {
+        setPins(prev => prev.map(p => p.id === updatedPin.id ? updatedPin : p));
+      }
+    }
+
+    setShowPinEditor(false);
+    setEditingPin(null);
+    setMode('view');
+  };
+
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
       <div className="w-80 bg-white shadow-lg flex flex-col">
@@ -783,7 +1114,52 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         </div>
 
         <div className="p-4 border-b">
-          <h3 className="font-semibold mb-3">Map Tools</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">Map Tools</h3>
+            <button
+              onClick={() => setShowScaleSettings(!showScaleSettings)}
+              className="p-1 text-gray-600 hover:text-gray-800"
+              title="Scale Settings"
+            >
+              <Settings size={16} />
+            </button>
+          </div>
+
+          {showScaleSettings && (
+            <div className="mb-4 p-3 bg-gray-50 rounded">
+              <h4 className="text-sm font-medium mb-2">Map Scale</h4>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={scaleSettings.factor}
+                    onChange={(e) => setScaleSettings(prev => ({ ...prev, factor: parseFloat(e.target.value) || 1 }))}
+                    className="flex-1 px-2 py-1 border rounded text-sm"
+                    step="0.1"
+                    min="0.1"
+                  />
+                  <select
+                    value={scaleSettings.unit}
+                    onChange={(e) => setScaleSettings(prev => ({ ...prev, unit: e.target.value }))}
+                    className="px-2 py-1 border rounded text-sm"
+                  >
+                    <option value="meters">meters</option>
+                    <option value="feet">feet</option>
+                    <option value="miles">miles</option>
+                    <option value="km">kilometers</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => updateMapScale(scaleSettings.factor, scaleSettings.unit)}
+                  className="w-full px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                >
+                  <Save size={12} className="inline mr-1" />
+                  Save Scale
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <button
               onClick={() => handleModeChange('view')}
@@ -818,9 +1194,19 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               <Ruler size={16} />
               Measure Distance
             </button>
+            <button
+              onClick={() => setShowPinTypeManager(!showPinTypeManager)}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm font-medium ${
+                showPinTypeManager 
+                  ? 'bg-purple-600 text-white' 
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              <Palette size={16} />
+              Manage Pin Types
+            </button>
           </div>
 
-          {/* Pin Type Selector */}
           {mode === 'add-pin' && pinTypes.length > 0 && (
             <div className="mt-4">
               <label className="block text-sm font-medium mb-2">Pin Type:</label>
@@ -838,6 +1224,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             </div>
           )}
         </div>
+
+        {showPinTypeManager && <PinTypeManager />}
 
         <div className="p-4 border-b flex-1">
           <div className="flex justify-between items-center mb-2">
@@ -857,19 +1245,34 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <div className="space-y-2 max-h-40 overflow-y-auto">
               {pins.map((pin) => (
                 <div key={pin.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1">
                     <div 
-                      className="w-3 h-3 rounded-full"
+                      className="w-3 h-3 rounded-full flex-shrink-0"
                       style={{ backgroundColor: pin.color }}
                     />
-                    <span className="text-sm">{pin.label}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm block truncate">{pin.label}</span>
+                      {pin.pin_type && (
+                        <span className="text-xs text-gray-500">{pin.pin_type.name}</span>
+                      )}
+                    </div>
                   </div>
-                  <button
-                    onClick={() => removePin(pin.id)}
-                    className="text-red-500 hover:text-red-700 text-xs"
-                  >
-                    Remove
-                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => showPinEditorForExistingPin(pin)}
+                      className="text-blue-500 hover:text-blue-700 text-xs p-1"
+                      title="Edit"
+                    >
+                      <Edit3 size={12} />
+                    </button>
+                    <button
+                      onClick={() => removePin(pin.id)}
+                      className="text-red-500 hover:text-red-700 text-xs p-1"
+                      title="Remove"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -894,7 +1297,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <div className="space-y-2 max-h-32 overflow-y-auto">
               {measurements.map((measurement) => (
                 <div key={measurement.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                  <span className="text-sm">{measurement.distance.toFixed(1)}m</span>
+                  <span className="text-sm">{measurement.distance.toFixed(1)} {scaleSettings.unit}</span>
                   <button
                     onClick={() => removeMeasurement(measurement.id)}
                     className="text-red-500 hover:text-red-700 text-xs"
@@ -911,7 +1314,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           <p>🖱️ Click and drag to pan</p>
           <p>🔍 Scroll to zoom</p>
           <p>📍 Hover over pins for details</p>
-          <p className="mt-2 font-medium">Scale: 1 pixel = 1 meter</p>
+          <p className="mt-2 font-medium">Scale: 1 pixel = {scaleSettings.factor} {scaleSettings.unit}</p>
         </div>
       </div>
 
@@ -938,7 +1341,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           </div>
 
           <div className="absolute bottom-4 left-4 bg-white bg-opacity-90 px-2 py-1 rounded text-sm font-mono z-10">
-            Scale: 1 pixel = 1 meter | Zoom: {(zoom * 100).toFixed(0)}%
+            Scale: 1 pixel = {scaleSettings.factor} {scaleSettings.unit} | Zoom: {(zoom * 100).toFixed(0)}%
           </div>
 
           <img
@@ -955,15 +1358,24 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             <div
               key={pin.id}
               style={getPinStyle(pin)}
-              title={pin.label}
+              title={`${pin.label}${pin.description ? ` - ${pin.description}` : ''}`}
+              onClick={() => mode === 'manage-pins' && showPinEditorForExistingPin(pin)}
             >
               <div className="relative">
-                <MapPin 
-                  size={24} 
-                  fill={pin.color} 
-                  color={pin.color}
-                  className="drop-shadow-lg"
-                />
+                {pin.pin_type?.icon_url ? (
+                  <img 
+                    src={pin.pin_type.icon_url} 
+                    alt={pin.label}
+                    className="w-6 h-6 drop-shadow-lg"
+                  />
+                ) : (
+                  <MapPin 
+                    size={24} 
+                    fill={pin.color} 
+                    color={pin.color}
+                    className="drop-shadow-lg"
+                  />
+                )}
                 <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-black text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity pointer-events-none">
                   {pin.label}
                 </div>
@@ -995,7 +1407,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 textAnchor="middle"
                 className="drop-shadow-lg"
               >
-                {measurement.distance.toFixed(1)}m
+                {measurement.distance.toFixed(1)} {scaleSettings.unit}
               </text>
             </svg>
           ))}
@@ -1011,6 +1423,76 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           )}
         </div>
       </div>
+
+      {showPinEditor && editingPin && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">
+              {editingPin.id === 'new' ? 'Add New Pin' : 'Edit Pin'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Name</label>
+                <input
+                  type="text"
+                  value={pinEditorData.label}
+                  onChange={(e) => setPinEditorData(prev => ({ ...prev, label: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded"
+                  placeholder="Pin name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Description</label>
+                <textarea
+                  value={pinEditorData.description}
+                  onChange={(e) => setPinEditorData(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded"
+                  rows={3}
+                  placeholder="Optional description"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Pin Type</label>
+                <select
+                  value={pinEditorData.pin_type_id}
+                  onChange={(e) => setPinEditorData(prev => ({ ...prev, pin_type_id: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  {pinTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name} ({type.category})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={savePinFromEditor}
+                disabled={!pinEditorData.label.trim()}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Save size={16} className="inline mr-2" />
+                Save
+              </button>
+              <button
+                onClick={() => {
+                  setShowPinEditor(false);
+                  setEditingPin(null);
+                  setMode('view');
+                }}
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
