@@ -1,3 +1,4 @@
+
 export interface Map {
   id: string;
   name: string;
@@ -20,7 +21,7 @@ export interface PinType {
   color: string;
   category: string;
   size_modifier: number;
-  icon_url?: string; // Add this optional property
+  icon_url?: string;
   is_active: boolean;
   created_at: string;
 }
@@ -35,7 +36,12 @@ export interface Pin {
   y_normalized: number;
   is_visible: boolean;
   created_at: string;
-  pin_types?: PinType; // This should match the Supabase join result
+  pin_types?: PinType; // This matches the Supabase join result
+}
+
+// Local interface for pins with loaded pin_type data
+export interface LocalPin extends Pin {
+  pin_type?: PinType; // Optional for when pin_type data is loaded separately
 }
 
 export interface DistanceMeasurement {
