@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Map as MapType } from './map/types';
+import { Map as MapType, Pin as DatabasePin, PinType, DistanceMeasurement } from './map/types';
 
 interface Pin {
   id: string;
@@ -10,6 +10,7 @@ interface Pin {
   y: number;
   label: string;
   color: string;
+  pin_type_id?: string;
 }
 
 interface Measurement {
@@ -53,6 +54,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [showMapSelector, setShowMapSelector] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Pin types from database
+  const [pinTypes, setPinTypes] = useState<PinType[]>([]);
+  const [selectedPinType, setSelectedPinType] = useState<string | null>(null);
+
   // Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapImageRef = useRef<HTMLImageElement>(null);
@@ -72,14 +77,108 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     
     setAvailableMaps(defaultMaps);
     loadMapsFromSupabase();
+    loadPinTypes();
   }, []);
+
+  // Load pin types from database
+  const loadPinTypes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('pin_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) {
+        console.error('Error loading pin types:', error);
+        return;
+      }
+
+      setPinTypes(data);
+      if (data.length > 0) {
+        setSelectedPinType(data[0].id);
+      }
+    } catch (error) {
+      console.error('Error loading pin types:', error);
+    }
+  };
+
+  // Load pins for the current map
+  const loadPinsForMap = async (mapId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('pins')
+        .select(`
+          *,
+          pin_types (
+            id,
+            name,
+            color,
+            size_modifier
+          )
+        `)
+        .eq('map_id', mapId)
+        .eq('is_visible', true);
+
+      if (error) {
+        console.error('Error loading pins:', error);
+        return;
+      }
+
+      const convertedPins: Pin[] = data.map((pin: DatabasePin) => ({
+        id: pin.id,
+        x: Number(pin.x_normalized) * (selectedMap?.width || 1),
+        y: Number(pin.y_normalized) * (selectedMap?.height || 1),
+        label: pin.name,
+        color: pin.pin_types?.color || '#FF0000',
+        pin_type_id: pin.pin_type_id || undefined
+      }));
+
+      setPins(convertedPins);
+    } catch (error) {
+      console.error('Error loading pins:', error);
+    }
+  };
+
+  // Load distance measurements for the current map
+  const loadMeasurementsForMap = async (mapId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('distance_measurements')
+        .select('*')
+        .eq('map_id', mapId);
+
+      if (error) {
+        console.error('Error loading measurements:', error);
+        return;
+      }
+
+      const convertedMeasurements: Measurement[] = data.map((measurement: DistanceMeasurement) => {
+        const points = measurement.points;
+        if (points.length >= 2) {
+          return {
+            id: measurement.id,
+            startX: points[0].x * (selectedMap?.width || 1),
+            startY: points[0].y * (selectedMap?.height || 1),
+            endX: points[1].x * (selectedMap?.width || 1),
+            endY: points[1].y * (selectedMap?.height || 1),
+            distance: measurement.total_distance || 0
+          };
+        }
+        return null;
+      }).filter(Boolean) as Measurement[];
+
+      setMeasurements(convertedMeasurements);
+    } catch (error) {
+      console.error('Error loading measurements:', error);
+    }
+  };
 
   // Load maps from Supabase
   const loadMapsFromSupabase = async () => {
     try {
       setIsLoading(true);
       
-      // Get maps from the database
       const { data: mapsData, error: mapsError } = await supabase
         .from('maps')
         .select('*')
@@ -96,7 +195,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return;
       }
 
-      // Convert database maps to MapOption format
       const supabaseMaps: MapOption[] = mapsData.map((map: MapType) => ({
         id: map.id,
         name: map.name,
@@ -106,7 +204,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       }));
       
       setAvailableMaps(prev => {
-        // Remove default maps if we have real maps, otherwise keep them
         const defaultMaps = prev.filter(map => map.id.startsWith('default-'));
         return supabaseMaps.length > 0 ? supabaseMaps : [...defaultMaps, ...supabaseMaps];
       });
@@ -120,6 +217,77 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Save pin to database
+  const savePinToDatabase = async (pin: Pin) => {
+    if (!selectedMap || selectedMap.id.startsWith('default-')) return;
+
+    try {
+      const pinData = {
+        map_id: selectedMap.id,
+        pin_type_id: pin.pin_type_id || selectedPinType,
+        name: pin.label,
+        description: null,
+        x_normalized: pin.x / (selectedMap.width || 1),
+        y_normalized: pin.y / (selectedMap.height || 1),
+        is_visible: true
+      };
+
+      const { error } = await supabase
+        .from('pins')
+        .insert(pinData);
+
+      if (error) {
+        console.error('Error saving pin:', error);
+        toast({
+          title: "Error",
+          description: "Failed to save pin to database",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error saving pin:', error);
+    }
+  };
+
+  // Save measurement to database
+  const saveMeasurementToDatabase = async (measurement: Measurement) => {
+    if (!selectedMap || selectedMap.id.startsWith('default-')) return;
+
+    try {
+      const measurementData = {
+        map_id: selectedMap.id,
+        name: `Distance ${measurements.length + 1}`,
+        points: [
+          {
+            x: measurement.startX / (selectedMap.width || 1),
+            y: measurement.startY / (selectedMap.height || 1)
+          },
+          {
+            x: measurement.endX / (selectedMap.width || 1),
+            y: measurement.endY / (selectedMap.height || 1)
+          }
+        ],
+        total_distance: measurement.distance,
+        unit: 'meters'
+      };
+
+      const { error } = await supabase
+        .from('distance_measurements')
+        .insert(measurementData);
+
+      if (error) {
+        console.error('Error saving measurement:', error);
+        toast({
+          title: "Error",
+          description: "Failed to save measurement to database",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error saving measurement:', error);
     }
   };
 
@@ -250,6 +418,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     setMeasurements([]);
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
+
+    // Load data for this map if it's from the database
+    if (!map.id.startsWith('default-')) {
+      loadPinsForMap(map.id);
+      loadMeasurementsForMap(map.id);
+    }
   };
 
   // Pixel to meter conversion
@@ -306,7 +480,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     zIndex: 1000
   }), [panOffset, zoom]);
 
-  // Mouse wheel zoom handler - CRITICAL FIX
+  // Mouse wheel zoom handler
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -329,20 +503,23 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     setPanOffset({ x: newPanX, y: newPanY });
   }, [zoom, panOffset]);
 
-  // Mouse down handler - CRITICAL FIX
+  // Mouse down handler
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     
     if (mode === 'add-pin') {
       const coords = getImageCoordinates(e.clientX, e.clientY);
+      const selectedType = pinTypes.find(type => type.id === selectedPinType);
       const newPin: Pin = {
         id: Date.now().toString(),
         x: coords.x,
         y: coords.y,
         label: `Pin ${pins.length + 1}`,
-        color: '#ff0000'
+        color: selectedType?.color || '#ff0000',
+        pin_type_id: selectedPinType || undefined
       };
       setPins(prev => [...prev, newPin]);
+      savePinToDatabase(newPin);
       setMode('view');
       return;
     }
@@ -362,6 +539,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           distance
         };
         setMeasurements(prev => [...prev, newMeasurement]);
+        saveMeasurementToDatabase(newMeasurement);
         setMeasureStart(null);
         setMode('view');
       }
@@ -373,9 +551,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       setIsDragging(true);
       setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
     }
-  }, [mode, getImageCoordinates, pins.length, measureStart, panOffset]);
+  }, [mode, getImageCoordinates, pins.length, measureStart, panOffset, selectedPinType, pinTypes]);
 
-  // Mouse move handler - CRITICAL FIX
+  // Mouse move handler
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isDragging && mode === 'view') {
       e.preventDefault();
@@ -413,7 +591,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   }, []);
 
-  // Set up wheel event listener - CRITICAL FIX
+  // Set up wheel event listener
   useEffect(() => {
     const container = mapContainerRef.current;
     if (!container) return;
@@ -426,7 +604,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     };
   }, [handleWheel]);
 
-  // Global mouse events for dragging - CRITICAL FIX
+  // Global mouse events for dragging
   useEffect(() => {
     const handleGlobalMouseUp = () => setIsDragging(false);
     const handleGlobalMouseMove = (e: MouseEvent) => {
@@ -456,13 +634,45 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   };
 
   // Remove pin
-  const removePin = (pinId: string) => {
+  const removePin = async (pinId: string) => {
     setPins(prev => prev.filter(p => p.id !== pinId));
+    
+    // Remove from database if it's not a default map
+    if (selectedMap && !selectedMap.id.startsWith('default-')) {
+      try {
+        const { error } = await supabase
+          .from('pins')
+          .delete()
+          .eq('id', pinId);
+
+        if (error) {
+          console.error('Error removing pin:', error);
+        }
+      } catch (error) {
+        console.error('Error removing pin:', error);
+      }
+    }
   };
 
   // Remove measurement
-  const removeMeasurement = (measurementId: string) => {
+  const removeMeasurement = async (measurementId: string) => {
     setMeasurements(prev => prev.filter(m => m.id !== measurementId));
+    
+    // Remove from database if it's not a default map
+    if (selectedMap && !selectedMap.id.startsWith('default-')) {
+      try {
+        const { error } = await supabase
+          .from('distance_measurements')
+          .delete()
+          .eq('id', measurementId);
+
+        if (error) {
+          console.error('Error removing measurement:', error);
+        }
+      } catch (error) {
+        console.error('Error removing measurement:', error);
+      }
+    }
   };
 
   // Show map selector if no map selected
@@ -607,6 +817,24 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               Measure Distance
             </button>
           </div>
+
+          {/* Pin Type Selector */}
+          {mode === 'add-pin' && pinTypes.length > 0 && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-2">Pin Type:</label>
+              <select
+                value={selectedPinType || ''}
+                onChange={(e) => setSelectedPinType(e.target.value)}
+                className="w-full px-3 py-2 border rounded text-sm"
+              >
+                {pinTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="p-4 border-b flex-1">

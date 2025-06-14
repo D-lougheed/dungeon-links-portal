@@ -135,6 +135,7 @@ export type Database = {
           is_active: boolean | null
           metadata: Json | null
           name: string
+          size: number | null
           size_modifier: number | null
           updated_at: string | null
         }
@@ -150,6 +151,7 @@ export type Database = {
           is_active?: boolean | null
           metadata?: Json | null
           name: string
+          size?: number | null
           size_modifier?: number | null
           updated_at?: string | null
         }
@@ -165,6 +167,7 @@ export type Database = {
           is_active?: boolean | null
           metadata?: Json | null
           name?: string
+          size?: number | null
           size_modifier?: number | null
           updated_at?: string | null
         }
@@ -178,6 +181,7 @@ export type Database = {
           external_link: string | null
           id: string
           is_visible: boolean | null
+          label: string | null
           map_id: string
           metadata: Json | null
           name: string
@@ -193,6 +197,7 @@ export type Database = {
           external_link?: string | null
           id?: string
           is_visible?: boolean | null
+          label?: string | null
           map_id: string
           metadata?: Json | null
           name: string
@@ -208,6 +213,7 @@ export type Database = {
           external_link?: string | null
           id?: string
           is_visible?: boolean | null
+          label?: string | null
           map_id?: string
           metadata?: Json | null
           name?: string
