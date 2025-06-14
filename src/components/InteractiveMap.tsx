@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Ruler, MapPin, Eye, Plus, ArrowLeft } from 'lucide-react';
+import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import { Map as MapType } from './map/types';
 
 interface Pin {
   id: string;
@@ -18,19 +21,21 @@ interface Measurement {
   distance: number;
 }
 
+interface MapOption {
+  id: string;
+  name: string;
+  url: string;
+  width?: number;
+  height?: number;
+}
+
 interface InteractiveMapProps {
-  imageUrl?: string;
-  imageWidth?: number;
-  imageHeight?: number;
   onBack?: () => void;
 }
 
-const InteractiveMap: React.FC<InteractiveMapProps> = ({
-  imageUrl = "/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png",
-  imageWidth = 2000,
-  imageHeight = 1500,
-  onBack
-}) => {
+const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
+  const { toast } = useToast();
+
   // State management
   const [zoom, setZoom] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
@@ -40,12 +45,214 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [mode, setMode] = useState<'view' | 'add-pin' | 'measure'>('view');
   const [measureStart, setMeasureStart] = useState<{ x: number; y: number } | null>(null);
+  
+  // Map selection state
+  const [availableMaps, setAvailableMaps] = useState<MapOption[]>([]);
+  const [selectedMap, setSelectedMap] = useState<MapOption | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [showMapSelector, setShowMapSelector] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapImageRef = useRef<HTMLImageElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Pixel to meter conversion (1 pixel = 1 meter as per your scale)
+  // Initialize with default maps and load from Supabase
+  useEffect(() => {
+    const defaultMaps: MapOption[] = [
+      {
+        id: 'default-1',
+        name: 'The Slumbering Ancients',
+        url: '/lovable-uploads/70382beb-0456-4b0e-b550-a587cc615789.png',
+        width: 2000,
+        height: 1500
+      }
+    ];
+    
+    setAvailableMaps(defaultMaps);
+    loadMapsFromSupabase();
+  }, []);
+
+  // Load maps from Supabase
+  const loadMapsFromSupabase = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Get maps from the database
+      const { data: mapsData, error: mapsError } = await supabase
+        .from('maps')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (mapsError) {
+        console.error('Error loading maps:', mapsError);
+        toast({
+          title: "Error",
+          description: "Failed to load maps from database",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Convert database maps to MapOption format
+      const supabaseMaps: MapOption[] = mapsData.map((map: MapType) => ({
+        id: map.id,
+        name: map.name,
+        url: map.image_url,
+        width: map.width,
+        height: map.height
+      }));
+      
+      setAvailableMaps(prev => {
+        // Remove default maps if we have real maps, otherwise keep them
+        const defaultMaps = prev.filter(map => map.id.startsWith('default-'));
+        return supabaseMaps.length > 0 ? supabaseMaps : [...defaultMaps, ...supabaseMaps];
+      });
+
+    } catch (error) {
+      console.error('Error loading maps from Supabase:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load maps",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle file upload to Supabase
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid File",
+        description: "Please select an image file",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file size (50MB limit)
+    if (file.size > 50 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please select an image smaller than 50MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      // Generate unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${crypto.randomUUID()}.${fileExt}`;
+      const filePath = `maps/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('maps')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw new Error(uploadError.message);
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('maps')
+        .getPublicUrl(filePath);
+
+      // Get image dimensions
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+
+      // Create map record in database
+      const mapData = {
+        name: file.name.replace(/\.[^/.]+$/, ""),
+        description: null,
+        image_url: urlData.publicUrl,
+        image_path: filePath,
+        width: img.width,
+        height: img.height,
+        scale_factor: 1,
+        scale_unit: 'meters',
+        is_active: true
+      };
+
+      const { data: mapRecord, error: dbError } = await supabase
+        .from('maps')
+        .insert(mapData)
+        .select()
+        .single();
+
+      if (dbError) {
+        console.error('Database error:', dbError);
+        // Clean up uploaded file if database insert fails
+        await supabase.storage.from('maps').remove([filePath]);
+        throw new Error(dbError.message);
+      }
+
+      // Create MapOption from the new record
+      const newMap: MapOption = {
+        id: mapRecord.id,
+        name: mapRecord.name,
+        url: mapRecord.image_url,
+        width: mapRecord.width,
+        height: mapRecord.height
+      };
+
+      setAvailableMaps(prev => [newMap, ...prev]);
+      setSelectedMap(newMap);
+      setShowMapSelector(false);
+
+      toast({
+        title: "Success",
+        description: "Map uploaded successfully!",
+      });
+
+      // Clean up object URL
+      URL.revokeObjectURL(img.src);
+
+    } catch (error) {
+      console.error('Error uploading map:', error);
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : "Failed to upload map",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+      // Clear the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Select a map
+  const selectMap = (map: MapOption) => {
+    setSelectedMap(map);
+    setShowMapSelector(false);
+    // Reset map state when switching maps
+    setPins([]);
+    setMeasurements([]);
+    setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  // Pixel to meter conversion
   const pixelToMeter = 1;
 
   // Helper function to get mouse position relative to the image
@@ -258,9 +465,88 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
     setMeasurements(prev => prev.filter(m => m.id !== measurementId));
   };
 
+  // Show map selector if no map selected
+  if (showMapSelector || !selectedMap) {
+    return (
+      <div className="flex h-screen bg-gray-100">
+        <div className="w-full max-w-4xl mx-auto p-8">
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center gap-3 mb-6">
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="flex items-center gap-2 text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  <ArrowLeft size={20} />
+                  Back
+                </button>
+              )}
+              <h1 className="text-2xl font-bold text-gray-800">Select a Map</h1>
+            </div>
+
+            {/* Upload Section */}
+            <div className="mb-8">
+              <h2 className="text-lg font-semibold mb-4">Upload New Map</h2>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <Upload size={48} className="mx-auto text-gray-400 mb-4" />
+                <p className="text-gray-600 mb-4">Upload a map image to get started</p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isUploading ? 'Uploading...' : 'Choose File'}
+                </button>
+              </div>
+            </div>
+
+            {/* Available Maps */}
+            <div>
+              <h2 className="text-lg font-semibold mb-4">
+                Available Maps 
+                {isLoading && <span className="text-sm text-gray-500 ml-2">(Loading...)</span>}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {availableMaps.map((map) => (
+                  <div
+                    key={map.id}
+                    onClick={() => selectMap(map)}
+                    className="border rounded-lg p-4 cursor-pointer hover:border-blue-500 hover:shadow-md transition-all"
+                  >
+                    <div className="aspect-video bg-gray-200 rounded mb-3 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={map.url}
+                        alt={map.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                      <Map size={48} className="text-gray-400" />
+                    </div>
+                    <h3 className="font-medium text-gray-800">{map.name}</h3>
+                    <p className="text-sm text-gray-500">
+                      {map.width} x {map.height}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
+    <div className="flex h-screen bg-gray-100 overflow-hidden">
       <div className="w-80 bg-white shadow-lg flex flex-col">
         <div className="p-4 border-b">
           <div className="flex items-center gap-3 mb-2">
@@ -275,10 +561,15 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
             )}
           </div>
           <h2 className="text-xl font-bold text-blue-600">Interactive World Map</h2>
-          <p className="text-sm text-gray-600">The Slumbering Ancients 100+ 6k</p>
+          <p className="text-sm text-gray-600">{selectedMap.name}</p>
+          <button
+            onClick={() => setShowMapSelector(true)}
+            className="text-xs text-blue-600 hover:text-blue-800 mt-1"
+          >
+            Change Map
+          </button>
         </div>
 
-        {/* Map Tools */}
         <div className="p-4 border-b">
           <h3 className="font-semibold mb-3">Map Tools</h3>
           <div className="space-y-2">
@@ -318,7 +609,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </div>
         </div>
 
-        {/* Pins */}
         <div className="p-4 border-b flex-1">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-semibold">Pins ({pins.length})</h3>
@@ -356,7 +646,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
           )}
         </div>
 
-        {/* Distance Measurements */}
         <div className="p-4 border-b">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-semibold">Distance Measurements ({measurements.length})</h3>
@@ -388,7 +677,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
           )}
         </div>
 
-        {/* Instructions */}
         <div className="p-4 text-xs text-gray-600 space-y-1">
           <p>🖱️ Click and drag to pan</p>
           <p>🔍 Scroll to zoom</p>
@@ -397,8 +685,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
       </div>
 
-      {/* Map Container */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative overflow-hidden">
         <div
           ref={mapContainerRef}
           style={containerStyle}
@@ -407,7 +694,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
         >
-          {/* Instructions overlay */}
           <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-3 py-2 rounded text-sm z-10">
             {mode === 'view' && (
               <div className="flex items-center gap-2">
@@ -421,15 +707,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
             )}
           </div>
 
-          {/* Zoom level indicator */}
           <div className="absolute bottom-4 left-4 bg-white bg-opacity-90 px-2 py-1 rounded text-sm font-mono z-10">
             Scale: 1 pixel = 1 meter | Zoom: {(zoom * 100).toFixed(0)}%
           </div>
 
-          {/* Map Image */}
           <img
             ref={mapImageRef}
-            src={imageUrl}
+            src={selectedMap.url}
             alt="Interactive Map"
             className="absolute select-none"
             style={imageStyle}
@@ -437,7 +721,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
             onLoad={handleImageLoad}
           />
 
-          {/* Pins */}
           {pins.map((pin) => (
             <div
               key={pin.id}
@@ -458,7 +741,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
             </div>
           ))}
 
-          {/* Measurements */}
           {measurements.map((measurement) => (
             <svg
               key={measurement.id}
@@ -488,7 +770,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({
             </svg>
           ))}
 
-          {/* Measurement preview */}
           {measureStart && mode === 'measure' && (
             <div
               className="absolute w-2 h-2 bg-green-500 rounded-full pointer-events-none z-20"
