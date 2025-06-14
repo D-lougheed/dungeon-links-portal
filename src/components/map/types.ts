@@ -13,7 +13,7 @@ export interface Map {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  thumbnail_url?: string; // Add this optional property for MapSelector
+  thumbnail_url?: string; // Add this for MapSelector compatibility
 }
 
 export interface PinType {
@@ -23,18 +23,18 @@ export interface PinType {
   color: string;
   category: string;
   size_modifier: number;
-  icon_url?: string | null; // Make this optional and nullable
+  icon_url?: string | null;
   is_active: boolean;
   created_at: string;
 }
 
-// Database Pin structure (what comes from Supabase)
+// Database Pin structure (what comes from Supabase with all fields)
 export interface DatabasePin {
   id: string;
   map_id: string;
   pin_type_id: string;
   name: string;
-  label: string; // Add this since your database might have both
+  label: string;
   description: string | null;
   x_normalized: number;
   y_normalized: number;
@@ -55,7 +55,19 @@ export interface DatabasePin {
   };
 }
 
-// Internal Pin interface (used in component)
+// Database DistanceMeasurement structure
+export interface DatabaseDistanceMeasurement {
+  id: string;
+  map_id: string;
+  name: string;
+  points: any; // Json type from Supabase - will be parsed
+  total_distance: number;
+  unit: string;
+  created_at: string;
+  created_by: string;
+}
+
+// Simplified Pin interface for component use
 export interface Pin {
   id: string;
   x: number;
@@ -67,19 +79,7 @@ export interface Pin {
   description?: string;
 }
 
-// Database DistanceMeasurement structure
-export interface DatabaseDistanceMeasurement {
-  id: string;
-  map_id: string;
-  name: string;
-  points: any; // Json type from Supabase
-  total_distance: number;
-  unit: string;
-  created_at: string;
-  created_by: string;
-}
-
-// Internal DistanceMeasurement interface
+// Simplified DistanceMeasurement interface 
 export interface DistanceMeasurement {
   id: string;
   map_id: string;
