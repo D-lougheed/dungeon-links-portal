@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -184,8 +185,7 @@ const GeneralAIAssistant: React.FC<GeneralAIAssistantProps> = ({ onBack }) => {
         <div className="container mx-auto px-4 py-4 flex items-center space-x-4">
           <Button 
             onClick={onBack}
-            variant="outline"
-            className="border-amber-200 text-amber-100 hover:bg-amber-700 hover:text-white"
+            className="text-white"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard

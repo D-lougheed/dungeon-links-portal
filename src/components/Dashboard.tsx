@@ -181,8 +181,7 @@ const Dashboard = () => {
             </div>
             <Button 
               onClick={signOut}
-              variant="outline"
-              className="border-amber-200 text-amber-100 hover:bg-amber-700 hover:text-white"
+              className="text-white"
             >
               <LogOut className="h-4 w-4 mr-2" />
               Logout
