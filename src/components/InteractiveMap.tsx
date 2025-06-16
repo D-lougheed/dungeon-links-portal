@@ -67,7 +67,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   const [showScaleSettings, setShowScaleSettings] = useState(false);
   const [showPinTypeManager, setShowPinTypeManager] = useState(false);
 
-  // Pin editor state
+  // Pin editor state - separate from editingPin to prevent re-renders
   const [pinEditorData, setPinEditorData] = useState({
     label: '',
     description: '',
@@ -170,7 +170,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
       const convertedPins: UIPin[] = data.map((dbPin: any) => ({
         id: dbPin.id,
-        // Convert normalized coordinates back to pixel coordinates
         x: Number(dbPin.x_normalized) * mapWidth,
         y: Number(dbPin.y_normalized) * mapHeight,
         label: dbPin.name,
@@ -284,7 +283,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         pin_type_id: pin.pin_type_id || selectedPinType,
         name: pin.label,
         description: pin.description || null,
-        // Normalize coordinates to 0-1 range for storage
         x_normalized: pin.x / mapWidth,
         y_normalized: pin.y / mapHeight,
         is_visible: true
@@ -319,7 +317,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return null;
       }
 
-      // Return the saved pin with database ID
       return {
         id: data.id,
         x: pin.x,
@@ -372,7 +369,6 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     try {
       let iconUrl = null;
 
-      // Upload icon if provided
       if (iconFile) {
         const fileExt = iconFile.name.split('.').pop();
         const fileName = `${crypto.randomUUID()}.${fileExt}`;
@@ -612,30 +608,32 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   // Show pin editor for new pin
   const showPinEditorForNewPin = (x: number, y: number) => {
     const selectedType = pinTypes.find(type => type.id === selectedPinType);
-    setPinEditorData({
-      label: `${selectedType?.name || 'Pin'} ${pins.length + 1}`,
-      description: '',
-      pin_type_id: selectedPinType || ''
-    });
-    setEditingPin({
+    const newPin: UIPin = {
       id: 'new',
       x,
       y,
-      label: '',
+      label: `${selectedType?.name || 'Pin'} ${pins.length + 1}`,
       color: selectedType?.color || '#ff0000',
       pin_type_id: selectedPinType || undefined
+    };
+    
+    setEditingPin(newPin);
+    setPinEditorData({
+      label: newPin.label,
+      description: '',
+      pin_type_id: selectedPinType || ''
     });
     setShowPinEditor(true);
   };
 
   // Show pin editor for existing pin
   const showPinEditorForExistingPin = (pin: UIPin) => {
+    setEditingPin(pin);
     setPinEditorData({
       label: pin.label,
       description: pin.description || '',
       pin_type_id: pin.pin_type_id || ''
     });
-    setEditingPin(pin);
     setShowPinEditor(true);
   };
 
@@ -653,13 +651,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     };
 
     if (editingPin.id === 'new') {
-      // Save new pin
       const savedPin = await savePinToDatabase(updatedPin);
       if (savedPin) {
         setPins(prev => [...prev, savedPin]);
       }
     } else {
-      // Update existing pin
       const success = await updatePinInDatabase(updatedPin);
       if (success) {
         setPins(prev => prev.map(p => p.id === updatedPin.id ? updatedPin : p));
@@ -1065,6 +1061,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 onChange={(e) => setPinEditorData(prev => ({ ...prev, label: e.target.value }))}
                 className="w-full px-3 py-2 border rounded-lg text-sm"
                 placeholder="Enter pin name"
+                autoFocus
               />
             </div>
             
