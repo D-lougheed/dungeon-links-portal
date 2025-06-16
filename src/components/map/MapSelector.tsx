@@ -8,7 +8,7 @@ import { Map } from './types';
 interface MapSelectorProps {
   maps: Map[];
   onMapSelect: (map: Map) => void;
-  onUploadClick: () => void;
+  onUploadClick?: () => void; // Made optional
   userRole: string;
 }
 
@@ -29,8 +29,8 @@ const MapSelector: React.FC<MapSelectorProps> = ({
         </p>
       </div>
 
-      {/* Upload New Map Button (DM Only) */}
-      {userRole === 'dm' && (
+      {/* Upload New Map Button (DM Only) - only show if onUploadClick is provided */}
+      {userRole === 'dm' && onUploadClick && (
         <div className="text-center">
           <Button 
             onClick={onUploadClick}
@@ -56,7 +56,7 @@ const MapSelector: React.FC<MapSelectorProps> = ({
                 ? 'Upload your first map to get started with interactive mapping.'
                 : 'Ask your DM to upload maps for the campaign.'}
             </p>
-            {userRole === 'dm' && (
+            {userRole === 'dm' && onUploadClick && (
               <Button onClick={onUploadClick}>
                 <Upload className="h-4 w-4 mr-2" />
                 Upload First Map

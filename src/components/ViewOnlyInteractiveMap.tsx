@@ -119,7 +119,20 @@ const ViewOnlyInteractiveMap: React.FC<ViewOnlyInteractiveMapProps> = ({ onBack 
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setDistances(data || []);
+      
+      // Convert the database data to DistanceMeasurement format
+      const convertedDistances: DistanceMeasurement[] = (data || []).map(dbDistance => ({
+        id: dbDistance.id,
+        map_id: dbDistance.map_id,
+        name: dbDistance.name,
+        points: Array.isArray(dbDistance.points) ? dbDistance.points as { x: number; y: number }[] : [],
+        total_distance: dbDistance.total_distance || 0,
+        unit: dbDistance.unit || 'pixels',
+        created_at: dbDistance.created_at || undefined,
+        created_by: dbDistance.created_by || undefined
+      }));
+      
+      setDistances(convertedDistances);
     } catch (error) {
       console.error('Error loading distances:', error);
     }
