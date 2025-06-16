@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map, Settings, Edit3, Palette, Save, X } from 'lucide-react';
+import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map, Settings, Edit3, Palette, Save, X, Check } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Map as MapType, Pin as DatabasePin, PinType, DistanceMeasurement } from './map/types';
@@ -91,6 +91,10 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     { value: 'squares', label: 'Grid Squares', abbreviation: 'sq' },
     { value: 'hexes', label: 'Hexes', abbreviation: 'hex' }
   ];
+
+  // New state for tracking unsaved changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -354,6 +358,12 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return null;
       }
 
+      setHasUnsavedChanges(false);
+      toast({
+        title: "Success",
+        description: "Pin saved successfully!",
+      });
+
       return {
         id: data.id,
         x: pin.x,
@@ -396,6 +406,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return false;
       }
 
+      setHasUnsavedChanges(false);
       return true;
     } catch (error) {
       console.error('Error updating pin:', error);
@@ -685,6 +696,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       pin_type_id: selectedPinType || ''
     });
     setShowPinEditor(true);
+    setHasUnsavedChanges(true);
   };
 
   // Show pin editor for existing pin
@@ -696,6 +708,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       pin_type_id: pin.pin_type_id || ''
     });
     setShowPinEditor(true);
+    setHasUnsavedChanges(true);
   };
 
   // Save pin from editor
@@ -828,6 +841,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         setMeasurements(prev => [...prev, newMeasurement]);
         setMeasureStart(null);
         setMode('view');
+        setHasUnsavedChanges(true);
       }
       return;
     }
@@ -936,6 +950,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
         if (error) {
           console.error('Error removing pin:', error);
+        } else {
+          toast({
+            title: "Success",
+            description: "Pin deleted successfully!",
+          });
         }
       } catch (error) {
         console.error('Error removing pin:', error);
@@ -1216,6 +1235,89 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     );
   };
 
+  // Add function to save distance measurements to database
+  const saveDistanceMeasurementsToDatabase = async () => {
+    if (!selectedMap || selectedMap.id.startsWith('default-') || measurements.length === 0) {
+      return true;
+    }
+
+    try {
+      const unsavedMeasurements = measurements.filter(m => typeof m.id === 'string' && m.id.length < 36);
+      
+      if (unsavedMeasurements.length === 0) {
+        return true;
+      }
+
+      const mapWidth = selectedMap.width || 1;
+      const mapHeight = selectedMap.height || 1;
+      const unitInfo = getScaleUnitInfo();
+
+      for (const measurement of unsavedMeasurements) {
+        const measurementData = {
+          map_id: selectedMap.id,
+          name: `Measurement ${Date.now()}`,
+          points: [
+            { x: measurement.startX / mapWidth, y: measurement.startY / mapHeight },
+            { x: measurement.endX / mapWidth, y: measurement.endY / mapHeight }
+          ],
+          total_distance: measurement.distance,
+          unit: unitInfo.value,
+          created_by: (await supabase.auth.getUser()).data.user?.id
+        };
+
+        const { error } = await supabase
+          .from('distance_measurements')
+          .insert(measurementData);
+
+        if (error) {
+          console.error('Error saving measurement:', error);
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error saving measurements:', error);
+      return false;
+    }
+  };
+
+  // Add function to handle manual save
+  const handleSaveChanges = async () => {
+    setIsSaving(true);
+    try {
+      const success = await saveDistanceMeasurementsToDatabase();
+      
+      if (success) {
+        setHasUnsavedChanges(false);
+        toast({
+          title: "Success",
+          description: "All changes saved successfully!",
+        });
+        
+        // Reload measurements from database
+        if (selectedMap && !selectedMap.id.startsWith('default-')) {
+          await loadMeasurementsForMap(selectedMap.id);
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to save some changes",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error saving changes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save changes",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Show map selector if no map selected
   if (showMapSelector || !selectedMap) {
     return (
@@ -1339,6 +1441,32 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             </button>
           </div>
         </div>
+
+        {/* Save Changes Button */}
+        {hasUnsavedChanges && (
+          <div className="p-4 border-b bg-amber-50">
+            <button
+              onClick={handleSaveChanges}
+              disabled={isSaving}
+              className="w-full flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSaving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  Save Changes
+                </>
+              )}
+            </button>
+            <p className="text-xs text-amber-700 mt-1 text-center">
+              You have unsaved changes
+            </p>
+          </div>
+        )}
 
         <div className="p-4 border-b">
           <h3 className="font-semibold mb-3">Map Tools</h3>
