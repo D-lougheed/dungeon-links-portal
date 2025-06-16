@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -23,6 +22,7 @@ import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
 import AdminTools from './AdminTools';
 import InteractiveMap from './InteractiveMap';
+import ViewOnlyInteractiveMap from './ViewOnlyInteractiveMap';
 
 const Dashboard = () => {
   const { signOut, user, userRole } = useAuth();
