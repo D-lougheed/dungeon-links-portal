@@ -86,22 +86,6 @@ const Dashboard = () => {
       dmOnly: true
     },
     {
-      id: "npcs-factions",
-      title: "NPCs & Factions",
-      description: "Non-player characters and faction relationships",
-      icon: Crown,
-      status: "Coming Soon",
-      dmOnly: true
-    },
-    {
-      id: "items-equipment",
-      title: "Items & Equipment",
-      description: "Magic items, weapons, and treasure tracking",
-      icon: Sword,
-      status: "Coming Soon",
-      dmOnly: false
-    },
-    {
       id: "quick-references",
       title: "Quick References",
       description: "Rules, tables, and useful D&D references",
