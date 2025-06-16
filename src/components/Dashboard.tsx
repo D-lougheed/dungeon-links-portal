@@ -38,12 +38,20 @@ const Dashboard = () => {
       dmOnly: true
     },
     {
-      id: "interactive-map",
+      id: "admin-interactive-map",
       title: "Admin Interactive Maps",
-      description: "View and manage campaign world locations with an interactive map",
+      description: "Manage campaign world locations with an interactive map",
       icon: Map,
       status: "Available",
       dmOnly: true
+    },
+    {
+      id: "interactive-maps",
+      title: "Interactive Maps",
+      description: "View campaign world locations with an interactive map",
+      icon: Map,
+      status: "Available",
+      dmOnly: false
     },
     {
       id: "general-ai-assistant",
@@ -134,8 +142,12 @@ const Dashboard = () => {
     return <AdminTools onBack={() => setActiveFeature(null)} />;
   }
 
-  if (activeFeature === "interactive-map") {
+  if (activeFeature === "admin-interactive-map") {
     return <InteractiveMap onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "interactive-maps") {
+    return <ViewOnlyInteractiveMap onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "general-ai-assistant") {
