@@ -74,7 +74,7 @@ const Dashboard = () => {
       title: "Character Management",
       description: "Track player characters, stats, and progression",
       icon: Users,
-      status: "Coming Soon",
+      status: "Available",
       dmOnly: false
     },
     {
@@ -134,6 +134,10 @@ const Dashboard = () => {
 
   const handleFeatureClick = (featureId: string, status: string) => {
     if (status === "Available") {
+      if (featureId === "character-management") {
+        window.open("https://www.dndbeyond.com/campaigns/5841297", "_blank");
+        return;
+      }
       setActiveFeature(featureId);
     }
   };
