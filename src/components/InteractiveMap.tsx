@@ -76,11 +76,21 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     pin_type_id: ''
   });
 
-  // Scale settings
+  // Scale settings with expanded unit options
   const [scaleSettings, setScaleSettings] = useState({
     factor: 1,
     unit: 'meters'
   });
+
+  // Available scale units
+  const scaleUnits = [
+    { value: 'meters', label: 'Meters', abbreviation: 'm' },
+    { value: 'feet', label: 'Feet', abbreviation: 'ft' },
+    { value: 'kilometers', label: 'Kilometers', abbreviation: 'km' },
+    { value: 'miles', label: 'Miles', abbreviation: 'mi' },
+    { value: 'squares', label: 'Grid Squares', abbreviation: 'sq' },
+    { value: 'hexes', label: 'Hexes', abbreviation: 'hex' }
+  ];
 
   // Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -454,9 +464,20 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Update map scale
+  // Update map scale with improved unit validation
   const updateMapScale = async (scaleFactor: number, scaleUnit: string) => {
     if (!selectedMap || selectedMap.id.startsWith('default-')) return;
+
+    // Validate scale unit
+    const validUnit = scaleUnits.find(unit => unit.value === scaleUnit);
+    if (!validUnit) {
+      toast({
+        title: "Error",
+        description: "Invalid scale unit selected",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       const { error } = await supabase
@@ -486,7 +507,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       
       toast({
         title: "Success",
-        description: "Map scale updated successfully!",
+        description: `Map scale updated to 1 pixel = ${scaleFactor} ${validUnit.label.toLowerCase()}!`,
       });
     } catch (error) {
       console.error('Error updating map scale:', error);
@@ -622,10 +643,16 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Calculate distance with proper scale
+  // Calculate distance with proper scale and unit formatting
   const calculateDistance = (x1: number, y1: number, x2: number, y2: number) => {
     const pixelDistance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
     return pixelDistance * scaleSettings.factor;
+  };
+
+  // Get scale unit display information
+  const getScaleUnitInfo = () => {
+    const unitInfo = scaleUnits.find(unit => unit.value === scaleSettings.unit);
+    return unitInfo || { value: scaleSettings.unit, label: scaleSettings.unit, abbreviation: scaleSettings.unit };
   };
 
   // Helper function to get mouse position relative to the image
@@ -1023,7 +1050,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     );
   };
 
-  // Scale Settings Component
+  // Enhanced Scale Settings Component with expanded unit options
   const ScaleSettings = () => {
     const [tempScale, setTempScale] = useState(scaleSettings);
 
@@ -1032,51 +1059,74 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       setShowScaleSettings(false);
     };
 
+    const selectedUnitInfo = scaleUnits.find(unit => unit.value === tempScale.unit);
+
     return (
-      <div className="absolute top-4 right-4 bg-white p-4 rounded-lg shadow-lg z-20 min-w-64">
-        <h3 className="font-semibold mb-3">Map Scale Settings</h3>
-        <div className="space-y-3">
+      <div className="absolute top-4 right-4 bg-white p-4 rounded-lg shadow-lg z-20 min-w-72">
+        <h3 className="font-semibold mb-3 flex items-center gap-2">
+          <Settings size={16} />
+          Map Scale Settings
+        </h3>
+        <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Scale Factor</label>
+            <label className="block text-sm font-medium mb-2">Scale Factor</label>
             <input
               type="number"
               value={tempScale.factor}
               onChange={(e) => setTempScale(prev => ({ ...prev, factor: parseFloat(e.target.value) || 1 }))}
-              className="w-full px-2 py-1 border rounded text-sm"
+              className="w-full px-3 py-2 border rounded text-sm"
               step="0.1"
               min="0.1"
-              placeholder="e.g., 1, 0.5, 2"
+              placeholder="e.g., 1, 0.5, 2, 5"
             />
+            <p className="text-xs text-gray-500 mt-1">
+              How many real-world units does 1 pixel represent?
+            </p>
           </div>
+          
           <div>
-            <label className="block text-sm font-medium mb-1">Unit</label>
+            <label className="block text-sm font-medium mb-2">Unit of Measurement</label>
             <select
               value={tempScale.unit}
               onChange={(e) => setTempScale(prev => ({ ...prev, unit: e.target.value }))}
-              className="w-full px-2 py-1 border rounded text-sm"
+              className="w-full px-3 py-2 border rounded text-sm"
             >
-              <option value="meters">Meters</option>
-              <option value="feet">Feet</option>
-              <option value="yards">Yards</option>
-              <option value="miles">Miles</option>
-              <option value="kilometers">Kilometers</option>
-              <option value="squares">Grid Squares</option>
-              <option value="hexes">Hexes</option>
+              {scaleUnits.map((unit) => (
+                <option key={unit.value} value={unit.value}>
+                  {unit.label} ({unit.abbreviation})
+                </option>
+              ))}
             </select>
           </div>
-          <div className="text-xs text-gray-600">
-            Current: 1 pixel = {scaleSettings.factor} {scaleSettings.unit}
+
+          <div className="bg-gray-50 p-3 rounded text-sm">
+            <div className="font-medium text-gray-700 mb-1">Preview:</div>
+            <div className="text-gray-600">
+              1 pixel = {tempScale.factor} {selectedUnitInfo?.label.toLowerCase() || tempScale.unit}
+            </div>
+            {tempScale.factor !== 1 && (
+              <div className="text-gray-500 text-xs mt-1">
+                {Math.round(1 / tempScale.factor * 10) / 10} pixels = 1 {selectedUnitInfo?.label.toLowerCase() || tempScale.unit}
+              </div>
+            )}
           </div>
-          <div className="flex gap-2">
+
+          <div className="text-xs text-gray-600 space-y-1">
+            <div><strong>Current:</strong> 1 pixel = {scaleSettings.factor} {getScaleUnitInfo().label.toLowerCase()}</div>
+            <div><strong>Tip:</strong> Use smaller factors (like 0.1) for detailed maps, larger factors (like 10) for world maps.</div>
+          </div>
+          
+          <div className="flex gap-2 pt-2">
             <button
               onClick={handleSaveScale}
-              className="flex-1 bg-blue-600 text-white py-1 rounded text-sm hover:bg-blue-700"
+              className="flex-1 bg-blue-600 text-white py-2 px-3 rounded text-sm hover:bg-blue-700 flex items-center justify-center gap-1"
             >
-              Save
+              <Save size={14} />
+              Save Scale
             </button>
             <button
               onClick={() => setShowScaleSettings(false)}
-              className="flex-1 bg-gray-300 text-gray-700 py-1 rounded text-sm hover:bg-gray-400"
+              className="flex-1 bg-gray-300 text-gray-700 py-2 px-3 rounded text-sm hover:bg-gray-400"
             >
               Cancel
             </button>
@@ -1213,32 +1263,36 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 {isLoading && <span className="text-sm text-gray-500 ml-2">(Loading...)</span>}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {availableMaps.map((map) => (
-                  <div
-                    key={map.id}
-                    onClick={() => selectMap(map)}
-                    className="border rounded-lg p-4 cursor-pointer hover:border-blue-500 hover:shadow-md transition-all"
-                  >
-                    <div className="aspect-video bg-gray-200 rounded mb-3 flex items-center justify-center overflow-hidden">
-                      <img
-                        src={map.url}
-                        alt={map.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                      <Map size={48} className="text-gray-400" />
+                {availableMaps.map((map) => {
+                  const unitInfo = scaleUnits.find(unit => unit.value === map.scale_unit) || 
+                                  { value: map.scale_unit, label: map.scale_unit, abbreviation: map.scale_unit };
+                  return (
+                    <div
+                      key={map.id}
+                      onClick={() => selectMap(map)}
+                      className="border rounded-lg p-4 cursor-pointer hover:border-blue-500 hover:shadow-md transition-all"
+                    >
+                      <div className="aspect-video bg-gray-200 rounded mb-3 flex items-center justify-center overflow-hidden">
+                        <img
+                          src={map.url}
+                          alt={map.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                        <Map size={48} className="text-gray-400" />
+                      </div>
+                      <h3 className="font-medium text-gray-800">{map.name}</h3>
+                      <p className="text-sm text-gray-500">
+                        {map.width} x {map.height}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Scale: 1px = {map.scale_factor || 1} {unitInfo.abbreviation}
+                      </p>
                     </div>
-                    <h3 className="font-medium text-gray-800">{map.name}</h3>
-                    <p className="text-sm text-gray-500">
-                      {map.width} x {map.height}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Scale: 1px = {map.scale_factor || 1} {map.scale_unit || 'meters'}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1246,6 +1300,8 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       </div>
     );
   }
+
+  const unitInfo = getScaleUnitInfo();
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
@@ -1422,7 +1478,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
               {measurements.map((measurement) => (
                 <div key={measurement.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                   <span className="text-sm">
-                    {measurement.distance.toFixed(1)} {scaleSettings.unit}
+                    {measurement.distance.toFixed(1)} {unitInfo.abbreviation}
                   </span>
                   <button
                     onClick={() => setMeasurements(prev => prev.filter(m => m.id !== measurement.id))}
@@ -1441,7 +1497,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           <p>🔍 Scroll to zoom</p>
           <p>📍 Click pins to edit</p>
           <p className="mt-2 font-medium">
-            Scale: 1 pixel = {scaleSettings.factor} {scaleSettings.unit}
+            Scale: 1 pixel = {scaleSettings.factor} {unitInfo.abbreviation}
           </p>
         </div>
       </div>
@@ -1471,7 +1527,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
           </div>
 
           <div className="absolute bottom-4 left-4 bg-white bg-opacity-90 px-2 py-1 rounded text-sm font-mono z-10">
-            Scale: 1px = {scaleSettings.factor} {scaleSettings.unit} | Zoom: {(zoom * 100).toFixed(0)}%
+            Scale: 1px = {scaleSettings.factor} {unitInfo.abbreviation} | Zoom: {(zoom * 100).toFixed(0)}%
           </div>
 
           <img
@@ -1549,7 +1605,7 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
                 textAnchor="middle"
                 className="drop-shadow-lg"
               >
-                {measurement.distance.toFixed(1)} {scaleSettings.unit}
+                {measurement.distance.toFixed(1)} {unitInfo.abbreviation}
               </text>
             </svg>
           ))}
