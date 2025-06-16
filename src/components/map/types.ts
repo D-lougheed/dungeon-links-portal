@@ -1,3 +1,4 @@
+
 // This file should be placed at src/components/map/types.ts
 
 // Database types (from Supabase schema)
@@ -7,6 +8,7 @@ export interface Map {
   description?: string | null;
   image_url: string;
   image_path?: string;
+  thumbnail_url?: string | null;
   width?: number;
   height?: number;
   scale_factor?: number;
