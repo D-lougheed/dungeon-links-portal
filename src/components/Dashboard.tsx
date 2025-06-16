@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -38,11 +39,11 @@ const Dashboard = () => {
     },
     {
       id: "interactive-map",
-      title: "Interactive World Map",
+      title: "Admin Interactive Maps",
       description: "View and manage campaign world locations with an interactive map",
       icon: Map,
       status: "Available",
-      dmOnly: false
+      dmOnly: true
     },
     {
       id: "general-ai-assistant",
