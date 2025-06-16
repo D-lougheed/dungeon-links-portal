@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Pin, DistanceMeasurement, Map } from './types';
 
@@ -265,11 +264,8 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     }
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
-    
-    const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.1, Math.min(5, scale * scaleFactor));
     
     if (!canvasRef.current) return;
     
@@ -278,14 +274,37 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     
-    // Zoom towards mouse position
-    const deltaScale = newScale - scale;
-    const newOffsetX = offset.x - (mouseX - offset.x) * (deltaScale / scale);
-    const newOffsetY = offset.y - (mouseY - offset.y) * (deltaScale / scale);
+    // Calculate zoom factor
+    const zoomIntensity = 0.1;
+    const wheel = e.deltaY < 0 ? 1 : -1;
+    const zoom = Math.exp(wheel * zoomIntensity);
+    
+    // Calculate new scale
+    const newScale = Math.max(0.1, Math.min(10, scale * zoom));
+    
+    // Calculate the point under the mouse in world coordinates
+    const worldX = (mouseX - offset.x) / scale;
+    const worldY = (mouseY - offset.y) / scale;
+    
+    // Calculate new offset to keep the point under the mouse
+    const newOffsetX = mouseX - worldX * newScale;
+    const newOffsetY = mouseY - worldY * newScale;
+    
+    console.log('Zoom event:', { 
+      deltaY: e.deltaY, 
+      wheel, 
+      zoom, 
+      currentScale: scale, 
+      newScale,
+      mouseX,
+      mouseY,
+      newOffsetX,
+      newOffsetY
+    });
     
     setScale(newScale);
     setOffset({ x: newOffsetX, y: newOffsetY });
-  };
+  }, [scale, offset]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape' && activeMode === 'distance') {
@@ -342,6 +361,11 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
           Scale: 1 pixel = {map.scale_factor} {map.scale_unit}
         </div>
       )}
+
+      {/* Zoom level indicator */}
+      <div className="absolute bottom-4 right-4 bg-black bg-opacity-60 text-white p-2 rounded text-sm">
+        Zoom: {Math.round(scale * 100)}%
+      </div>
     </div>
   );
 };
