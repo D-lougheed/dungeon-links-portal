@@ -25,6 +25,7 @@ import AdminTools from './AdminTools';
 import InteractiveMap from './InteractiveMap';
 import ViewOnlyInteractiveMap from './ViewOnlyInteractiveMap';
 import GameCalendar from './GameCalendar';
+import DiceRoller from './DiceRoller';
 
 const Dashboard = () => {
   const { signOut, user, userRole } = useAuth();
@@ -108,7 +109,7 @@ const Dashboard = () => {
       title: "Dice Roller",
       description: "Digital dice for quick rolls during sessions",
       icon: Dice6,
-      status: "Coming Soon",
+      status: "Available",
       dmOnly: false
     },
     {
@@ -150,6 +151,10 @@ const Dashboard = () => {
 
   if (activeFeature === "game-calendar") {
     return <GameCalendar onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "dice-roller") {
+    return <DiceRoller onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "general-ai-assistant") {
