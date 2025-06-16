@@ -14,6 +14,8 @@ interface UIPin {
   pin_type_id?: string;
   pin_type?: PinType;
   description?: string;
+  x_normalized?: number;
+  y_normalized?: number;
 }
 
 interface Measurement {
@@ -140,7 +142,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
 
   // Load pins for the current map with proper coordinate conversion
   const loadPinsForMap = async (mapId: string) => {
+    if (!selectedMap) {
+      console.log('No selected map, skipping pin loading');
+      return;
+    }
+
     try {
+      console.log('Loading pins for map:', mapId);
+      
       const { data, error } = await supabase
         .from('pins')
         .select(`
@@ -165,20 +174,31 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         return;
       }
 
-      const mapWidth = selectedMap?.width || 1;
-      const mapHeight = selectedMap?.height || 1;
+      console.log('Loaded pins from database:', data);
+      console.log('Selected map dimensions:', selectedMap.width, 'x', selectedMap.height);
 
-      const convertedPins: UIPin[] = data.map((dbPin: any) => ({
-        id: dbPin.id,
-        x: Number(dbPin.x_normalized) * mapWidth,
-        y: Number(dbPin.y_normalized) * mapHeight,
-        label: dbPin.name,
-        color: dbPin.pin_types?.color || '#FF0000',
-        pin_type_id: dbPin.pin_type_id || undefined,
-        pin_type: dbPin.pin_types,
-        description: dbPin.description
-      }));
+      const mapWidth = selectedMap.width || 1;
+      const mapHeight = selectedMap.height || 1;
 
+      const convertedPins: UIPin[] = data.map((dbPin: any) => {
+        const pin = {
+          id: dbPin.id,
+          x: Number(dbPin.x_normalized) * mapWidth,
+          y: Number(dbPin.y_normalized) * mapHeight,
+          label: dbPin.name,
+          color: dbPin.pin_types?.color || '#FF0000',
+          pin_type_id: dbPin.pin_type_id || undefined,
+          pin_type: dbPin.pin_types,
+          description: dbPin.description,
+          x_normalized: Number(dbPin.x_normalized),
+          y_normalized: Number(dbPin.y_normalized)
+        };
+        
+        console.log(`Pin ${dbPin.name}: normalized(${dbPin.x_normalized}, ${dbPin.y_normalized}) -> pixel(${pin.x}, ${pin.y})`);
+        return pin;
+      });
+
+      console.log('Converted pins:', convertedPins);
       setPins(convertedPins);
     } catch (error) {
       console.error('Error loading pins:', error);
@@ -278,13 +298,20 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
       const mapWidth = selectedMap.width || 1;
       const mapHeight = selectedMap.height || 1;
 
+      // Ensure coordinates are normalized properly
+      const x_normalized = pin.x_normalized || (pin.x / mapWidth);
+      const y_normalized = pin.y_normalized || (pin.y / mapHeight);
+
+      console.log(`Saving pin: pixel(${pin.x}, ${pin.y}) -> normalized(${x_normalized}, ${y_normalized})`);
+      console.log(`Map dimensions: ${mapWidth} x ${mapHeight}`);
+
       const pinData = {
         map_id: selectedMap.id,
         pin_type_id: pin.pin_type_id || selectedPinType,
         name: pin.label,
         description: pin.description || null,
-        x_normalized: pin.x / mapWidth,
-        y_normalized: pin.y / mapHeight,
+        x_normalized: x_normalized,
+        y_normalized: y_normalized,
         is_visible: true
       };
 
@@ -325,7 +352,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         color: data.pin_types?.color || pin.color,
         pin_type_id: data.pin_type_id,
         pin_type: data.pin_types,
-        description: data.description
+        description: data.description,
+        x_normalized: data.x_normalized,
+        y_normalized: data.y_normalized
       } as UIPin;
     } catch (error) {
       console.error('Error saving pin:', error);
@@ -573,8 +602,9 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
-  // Select a map
+  // Select a map and load its data
   const selectMap = (map: MapOption) => {
+    console.log('Selecting map:', map);
     setSelectedMap(map);
     setShowMapSelector(false);
     setPins([]);
@@ -582,9 +612,13 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
 
+    // Load pins after the map is selected
     if (!map.id.startsWith('default-')) {
-      loadPinsForMap(map.id);
-      loadMeasurementsForMap(map.id);
+      // Use a timeout to ensure the selectedMap state is updated
+      setTimeout(() => {
+        loadPinsForMap(map.id);
+        loadMeasurementsForMap(map.id);
+      }, 100);
     }
   };
 
@@ -695,16 +729,29 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     const baseSize = 24;
     const size = baseSize * (pinType?.size_modifier || 1);
     
+    // Use the stored normalized coordinates if available, otherwise calculate from pixel coordinates
+    let displayX, displayY;
+    
+    if (pin.x_normalized !== undefined && pin.y_normalized !== undefined && selectedMap) {
+      // Use normalized coordinates for consistent positioning
+      displayX = pin.x_normalized * (selectedMap.width || 1);
+      displayY = pin.y_normalized * (selectedMap.height || 1);
+    } else {
+      // Fallback to pixel coordinates
+      displayX = pin.x;
+      displayY = pin.y;
+    }
+    
     return {
       position: 'absolute' as const,
-      left: `${panOffset.x + pin.x * zoom - size/2}px`,
-      top: `${panOffset.y + pin.y * zoom - size}px`,
+      left: `${panOffset.x + displayX * zoom - size/2}px`,
+      top: `${panOffset.y + displayY * zoom - size}px`,
       transform: `scale(${Math.max(0.5, Math.min(1.5, zoom))})`,
       transformOrigin: 'center bottom',
       pointerEvents: 'auto' as const,
       zIndex: 1000
     };
-  }, [panOffset, zoom, pinTypes]);
+  }, [panOffset, zoom, pinTypes, selectedMap]);
 
   // Event handlers
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -802,8 +849,14 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
         x: centerX,
         y: Math.max(20, centerY)
       });
+
+      // If we have a selected map and it's not a default map, load pins after image loads
+      if (selectedMap && !selectedMap.id.startsWith('default-')) {
+        console.log('Image loaded, reloading pins for map:', selectedMap.id);
+        loadPinsForMap(selectedMap.id);
+      }
     }
-  }, []);
+  }, [selectedMap]);
 
   // Effects
   useEffect(() => {
