@@ -15,7 +15,8 @@ import {
   Sparkles,
   Settings,
   User,
-  Map
+  Map,
+  Calendar
 } from 'lucide-react';
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
@@ -23,6 +24,7 @@ import SlumberingAncientsAI from './SlumberingAncientsAI';
 import AdminTools from './AdminTools';
 import InteractiveMap from './InteractiveMap';
 import ViewOnlyInteractiveMap from './ViewOnlyInteractiveMap';
+import GameCalendar from './GameCalendar';
 
 const Dashboard = () => {
   const { signOut, user, userRole } = useAuth();
@@ -50,6 +52,14 @@ const Dashboard = () => {
       title: "Interactive Maps",
       description: "View campaign world locations with an interactive map",
       icon: Map,
+      status: "Available",
+      dmOnly: false
+    },
+    {
+      id: "game-calendar",
+      title: "Game Calendar",
+      description: "View campaign schedule and upcoming game sessions",
+      icon: Calendar,
       status: "Available",
       dmOnly: false
     },
@@ -136,6 +146,10 @@ const Dashboard = () => {
 
   if (activeFeature === "interactive-maps") {
     return <ViewOnlyInteractiveMap onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "game-calendar") {
+    return <GameCalendar onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "general-ai-assistant") {
