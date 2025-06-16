@@ -1,8 +1,19 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map, Settings, Edit3, Palette, Save, X, Check } from 'lucide-react';
+import { Ruler, MapPin, Eye, Plus, ArrowLeft, Upload, Map, Settings, Edit3, Palette, Save, X, Check, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Map as MapType, Pin as DatabasePin, PinType, DistanceMeasurement } from './map/types';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 // Internal UI representation of a pin
 interface UIPin {
@@ -95,6 +106,11 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
   // New state for tracking unsaved changes
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // New state for map deletion
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Refs
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -962,6 +978,93 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
     }
   };
 
+  // Add new function to handle map deletion
+  const handleDeleteMap = async () => {
+    if (!selectedMap || selectedMap.id.startsWith('default-')) {
+      toast({
+        title: "Error",
+        description: "Cannot delete default maps",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (deleteConfirmText !== selectedMap.name) {
+      toast({
+        title: "Error", 
+        description: "Map name does not match",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      // Delete associated pins first
+      await supabase
+        .from('pins')
+        .delete()
+        .eq('map_id', selectedMap.id);
+
+      // Delete associated measurements
+      await supabase
+        .from('distance_measurements')
+        .delete()
+        .eq('map_id', selectedMap.id);
+
+      // Delete the map image from storage if it has an image_path
+      if (selectedMap.url && !selectedMap.url.startsWith('/lovable-uploads/')) {
+        const mapData = await supabase
+          .from('maps')
+          .select('image_path')
+          .eq('id', selectedMap.id)
+          .single();
+
+        if (mapData.data?.image_path) {
+          await supabase.storage
+            .from('maps')
+            .remove([mapData.data.image_path]);
+        }
+      }
+
+      // Delete the map record
+      const { error } = await supabase
+        .from('maps')
+        .delete()
+        .eq('id', selectedMap.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: "Map deleted successfully",
+      });
+
+      // Reset state and go back to map selector
+      setSelectedMap(null);
+      setShowMapSelector(true);
+      setPins([]);
+      setMeasurements([]);
+      setDeleteConfirmText('');
+      setShowDeleteDialog(false);
+
+      // Reload available maps
+      await loadMapsFromSupabase();
+
+    } catch (error) {
+      console.error('Error deleting map:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete map",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Pin Type Manager Component
   const PinTypeManager = () => {
     const [newPinType, setNewPinType] = useState({
@@ -1439,6 +1542,66 @@ const InteractiveMap: React.FC<InteractiveMapProps> = ({ onBack }) => {
             >
               Scale Settings
             </button>
+            {!selectedMap.id.startsWith('default-') && (
+              <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+                <AlertDialogTrigger asChild>
+                  <button className="text-xs text-red-600 hover:text-red-800">
+                    Delete Map
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="flex items-center gap-2">
+                      <Trash2 size={20} className="text-red-600" />
+                      Delete Map
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete the map
+                      "{selectedMap.name}" and all associated pins and measurements.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  
+                  <div className="my-4">
+                    <label className="block text-sm font-medium mb-2">
+                      Type the map name to confirm deletion:
+                    </label>
+                    <input
+                      type="text"
+                      value={deleteConfirmText}
+                      onChange={(e) => setDeleteConfirmText(e.target.value)}
+                      placeholder={selectedMap.name}
+                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                    />
+                  </div>
+
+                  <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => {
+                      setDeleteConfirmText('');
+                      setShowDeleteDialog(false);
+                    }}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteMap}
+                      disabled={deleteConfirmText !== selectedMap.name || isDeleting}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      {isDeleting ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={16} className="mr-2" />
+                          Delete Map
+                        </>
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
 
