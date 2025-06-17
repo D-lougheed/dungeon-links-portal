@@ -1,4 +1,3 @@
-
 // This file should be placed at src/components/map/types.ts
 
 // Database types (from Supabase schema)
@@ -88,7 +87,7 @@ export interface Point {
   y: number;
 }
 
-// Map Area type - updated to support both bounding boxes and polygons
+// Map Area type - updated to support visibility and custom region types
 export interface MapArea {
   id: string;
   map_id: string;
@@ -105,6 +104,15 @@ export interface MapArea {
   created_at?: string;
   created_by?: string | null;
   updated_at?: string;
+  is_visible?: boolean;
+}
+
+// Custom Region Type interface
+export interface RegionType {
+  id: string;
+  name: string;
+  color: string;
+  is_active: boolean;
 }
 
 // UI types for components that need pixel coordinates

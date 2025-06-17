@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, Square } from 'lucide-react';
@@ -23,6 +22,10 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
   const [mapAreas, setMapAreas] = useState<MapArea[]>([]);
   const [activeMode, setActiveMode] = useState<'view' | 'area'>('view');
   const [isLoading, setIsLoading] = useState(true);
+  
+  // New state for region types and visibility
+  const [regionTypes, setRegionTypes] = useState<{ id: string; name: string; color: string; is_active: boolean }[]>([]);
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
   // Load maps on component mount
   useEffect(() => {
@@ -33,6 +36,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
   useEffect(() => {
     if (selectedMap) {
       loadMapAreas();
+      loadRegionTypes();
     }
   }, [selectedMap]);
 
@@ -98,7 +102,8 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
             'x2' in area.bounding_box && 'y2' in area.bounding_box
             ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
             : null,
-          polygon_coordinates: polygonCoordinates
+          polygon_coordinates: polygonCoordinates,
+          is_visible: area.is_visible !== false // Default to true if not specified
         };
       });
       
@@ -109,6 +114,136 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
         title: "Error",
         description: "Failed to load map areas",
         variant: "destructive",
+      });
+    }
+  };
+
+  // Load custom region types (for now, we'll store them in local state)
+  const loadRegionTypes = () => {
+    // For now, we'll use local storage to persist custom types
+    // In a real app, you'd want to store these in the database
+    const storedTypes = localStorage.getItem(`regionTypes_${selectedMap?.id}`);
+    if (storedTypes) {
+      try {
+        setRegionTypes(JSON.parse(storedTypes));
+      } catch (error) {
+        console.error('Error parsing stored region types:', error);
+        setRegionTypes([]);
+      }
+    } else {
+      setRegionTypes([]);
+    }
+  };
+
+  // Save region types to local storage
+  const saveRegionTypes = (types: typeof regionTypes) => {
+    if (selectedMap) {
+      localStorage.setItem(`regionTypes_${selectedMap.id}`, JSON.stringify(types));
+    }
+  };
+
+  // Get color for area type (including custom types)
+  const getAreaColor = (areaType: string) => {
+    // Check custom types first
+    const customType = regionTypes.find(type => type.name === areaType && type.is_active);
+    if (customType) {
+      return customType.color;
+    }
+
+    // Default colors
+    const colors: { [key: string]: string } = {
+      'terrain': '#22c55e',
+      'landmark': '#3b82f6',
+      'region': '#f59e0b',
+      'settlement': '#8b5cf6',
+      'water': '#06b6d4',
+      'forest': '#16a34a',
+      'mountain': '#78716c',
+      'desert': '#eab308',
+      'default': '#ef4444'
+    };
+    return colors[areaType] || colors.default;
+  };
+
+  // Handle adding custom region type
+  const handleAddRegionType = (name: string, color: string) => {
+    const newType = {
+      id: `custom_${Date.now()}`,
+      name,
+      color,
+      is_active: true
+    };
+    const updatedTypes = [...regionTypes, newType];
+    setRegionTypes(updatedTypes);
+    saveRegionTypes(updatedTypes);
+    
+    toast({
+      title: "Success",
+      description: "Region type added successfully",
+    });
+  };
+
+  // Handle updating custom region type
+  const handleUpdateRegionType = (id: string, updates: Partial<typeof regionTypes[0]>) => {
+    const updatedTypes = regionTypes.map(type => 
+      type.id === id ? { ...type, ...updates } : type
+    );
+    setRegionTypes(updatedTypes);
+    saveRegionTypes(updatedTypes);
+    
+    toast({
+      title: "Success",
+      description: "Region type updated successfully",
+    });
+  };
+
+  // Handle deleting custom region type
+  const handleDeleteRegionType = (id: string) => {
+    const updatedTypes = regionTypes.filter(type => type.id !== id);
+    setRegionTypes(updatedTypes);
+    saveRegionTypes(updatedTypes);
+    
+    toast({
+      title: "Success",
+      description: "Region type deleted successfully",
+    });
+  };
+
+  // Handle toggling individual area visibility
+  const handleToggleAreaVisibility = async (areaId: string) => {
+    const area = mapAreas.find(a => a.id === areaId);
+    if (!area) return;
+
+    const newVisibility = area.is_visible === false ? true : false;
+    await handleAreaUpdate(areaId, { is_visible: newVisibility });
+  };
+
+  // Handle toggling type visibility
+  const handleToggleTypeVisibility = (typeName: string) => {
+    const newHiddenTypes = new Set(hiddenTypes);
+    if (hiddenTypes.has(typeName)) {
+      newHiddenTypes.delete(typeName);
+    } else {
+      newHiddenTypes.add(typeName);
+    }
+    setHiddenTypes(newHiddenTypes);
+  };
+
+  // Handle toggling all visibility
+  const handleToggleAllVisibility = () => {
+    const allVisible = mapAreas.every(area => area.is_visible !== false) && hiddenTypes.size === 0;
+    
+    if (allVisible) {
+      // Hide all
+      setHiddenTypes(new Set(Array.from(new Set(mapAreas.map(area => area.area_type)))));
+    } else {
+      // Show all
+      setHiddenTypes(new Set());
+      // Also make sure all individual areas are visible
+      mapAreas.forEach(area => {
+        if (area.is_visible === false) {
+          handleAreaUpdate(area.id, { is_visible: true });
+        }
       });
     }
   };
@@ -128,7 +263,8 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
           area_type: areaType,
           description: description || null,
           polygon_coordinates: polygonJson as any, // Cast to any to satisfy Json type
-          created_by: user.id
+          created_by: user.id,
+          is_visible: true // Default to visible
         });
 
       if (error) throw error;
@@ -185,6 +321,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
     }
   };
 
+  // Handle deleting map area
   const handleAreaDelete = async (areaId: string) => {
     try {
       const { error } = await supabase
@@ -311,6 +448,9 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
                 activeMode={activeMode}
                 onAreaAdd={handleAreaAdd}
                 userRole={userRole}
+                regionTypes={regionTypes}
+                hiddenTypes={hiddenTypes}
+                getAreaColor={getAreaColor}
               />
             </div>
 
@@ -322,6 +462,15 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
                 onAreaDelete={handleAreaDelete}
                 userRole={userRole}
                 activeMode={activeMode}
+                regionTypes={regionTypes}
+                onAddRegionType={handleAddRegionType}
+                onUpdateRegionType={handleUpdateRegionType}
+                onDeleteRegionType={handleDeleteRegionType}
+                hiddenTypes={hiddenTypes}
+                onToggleAreaVisibility={handleToggleAreaVisibility}
+                onToggleTypeVisibility={handleToggleTypeVisibility}
+                onToggleAllVisibility={handleToggleAllVisibility}
+                getAreaColor={getAreaColor}
               />
             </div>
           </div>

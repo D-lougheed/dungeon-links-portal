@@ -1,7 +1,6 @@
-
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { MapArea, Map, Point } from './types';
+import { MapArea, Map, Point, RegionType } from './types';
 
 interface MapAreasCanvasProps {
   map: Map;
@@ -9,6 +8,9 @@ interface MapAreasCanvasProps {
   activeMode: 'view' | 'area';
   onAreaAdd: (coordinates: Point[], areaName: string, areaType: string, description?: string) => void;
   userRole: string;
+  regionTypes: RegionType[];
+  hiddenTypes: Set<string>;
+  getAreaColor: (areaType: string) => string;
 }
 
 const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
@@ -16,7 +18,10 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
   mapAreas,
   activeMode,
   onAreaAdd,
-  userRole
+  userRole,
+  regionTypes,
+  hiddenTypes,
+  getAreaColor
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,22 +82,6 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     });
   }, [map, imageLoaded]);
 
-  // Get area color based on type
-  const getAreaColor = (areaType: string) => {
-    const colors: { [key: string]: string } = {
-      'terrain': '#22c55e',
-      'landmark': '#3b82f6',
-      'region': '#f59e0b',
-      'settlement': '#8b5cf6',
-      'water': '#06b6d4',
-      'forest': '#16a34a',
-      'mountain': '#78716c',
-      'desert': '#eab308',
-      'default': '#ef4444'
-    };
-    return colors[areaType] || colors.default;
-  };
-
   // Convert normalized coordinates to pixel coordinates
   const normalizedToPixel = (point: Point): Point => ({
     x: point.x * (map.width || 0),
@@ -147,8 +136,13 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     // Draw map image
     ctx.drawImage(imageRef.current, 0, 0, map.width || 0, map.height || 0);
     
-    // Draw existing map areas
+    // Draw existing map areas (only visible ones)
     mapAreas.forEach(area => {
+      // Skip if area is hidden individually or by type
+      if (area.is_visible === false || hiddenTypes.has(area.area_type)) {
+        return;
+      }
+
       const color = getAreaColor(area.area_type);
       
       if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
@@ -231,7 +225,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     
     // Restore context
     ctx.restore();
-  }, [map, mapAreas, scale, offset, isDrawingPolygon, polygonPoints, currentMousePos, imageLoaded]);
+  }, [map, mapAreas, scale, offset, isDrawingPolygon, polygonPoints, currentMousePos, imageLoaded, hiddenTypes, getAreaColor]);
 
   // Draw on every render
   useEffect(() => {
@@ -371,6 +365,21 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     setNewAreaCoordinates(null);
   };
 
+  // Get available region types for dropdown in dialog
+  const availableTypes = [
+    // Default types
+    { name: 'terrain', color: '#22c55e' },
+    { name: 'landmark', color: '#3b82f6' },
+    { name: 'region', color: '#f59e0b' },
+    { name: 'settlement', color: '#8b5cf6' },
+    { name: 'water', color: '#06b6d4' },
+    { name: 'forest', color: '#16a34a' },
+    { name: 'mountain', color: '#78716c' },
+    { name: 'desert', color: '#eab308' },
+    // Custom types
+    ...regionTypes.map(type => ({ name: type.name, color: type.color }))
+  ];
+
   return (
     <div className="space-y-4">
       <div 
@@ -485,14 +494,11 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
                     className="w-full border border-gray-300 rounded px-3 py-2"
                   >
                     <option value="">Select type</option>
-                    <option value="terrain">Terrain</option>
-                    <option value="landmark">Landmark</option>
-                    <option value="region">Region</option>
-                    <option value="settlement">Settlement</option>
-                    <option value="water">Water</option>
-                    <option value="forest">Forest</option>
-                    <option value="mountain">Mountain</option>
-                    <option value="desert">Desert</option>
+                    {availableTypes.map(type => (
+                      <option key={type.name} value={type.name}>
+                        {type.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
