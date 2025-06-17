@@ -105,7 +105,20 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         .order('area_name');
       
       if (error) throw error;
-      setMapAreas(data || []);
+      
+      // Transform the data to match our MapArea interface
+      const transformedAreas: MapArea[] = (data || []).map(area => ({
+        id: area.id,
+        area_name: area.area_name,
+        area_type: area.area_type,
+        description: area.description,
+        terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features : [],
+        landmarks: Array.isArray(area.landmarks) ? area.landmarks : [],
+        general_location: area.general_location,
+        confidence_score: area.confidence_score
+      }));
+      
+      setMapAreas(transformedAreas);
     } catch (error) {
       console.error('Error loading map areas:', error);
     }
