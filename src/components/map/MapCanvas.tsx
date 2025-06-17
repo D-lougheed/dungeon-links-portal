@@ -1,22 +1,6 @@
+
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Pin, DistanceMeasurement, Map } from './types';
-
-interface MapArea {
-  id: string;
-  area_name: string;
-  area_type: string;
-  description?: string;
-  terrain_features: string[];
-  landmarks: string[];
-  general_location?: string;
-  confidence_score?: number;
-  bounding_box?: {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-  } | null;
-}
 
 interface MapCanvasProps {
   map: Map;
@@ -26,8 +10,6 @@ interface MapCanvasProps {
   onPinAdd: (x: number, y: number) => void;
   onDistanceAdd: (points: { x: number; y: number }[], distance: number) => void;
   userRole: string;
-  mapAreas?: MapArea[];
-  showAreaOverlays?: boolean;
 }
 
 const MapCanvas: React.FC<MapCanvasProps> = ({
@@ -37,9 +19,7 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
   activeMode,
   onPinAdd,
   onDistanceAdd,
-  userRole,
-  mapAreas = [],
-  showAreaOverlays = false
+  userRole
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -103,37 +83,6 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     });
   }, [map, imageLoaded]);
 
-  // Area type colors for overlays
-  const getAreaColor = (areaType: string): string => {
-    const colors: { [key: string]: string } = {
-      'terrain': 'rgba(34, 197, 94, 0.3)',    // green
-      'landmark': 'rgba(239, 68, 68, 0.3)',   // red
-      'region': 'rgba(59, 130, 246, 0.3)',    // blue
-      'settlement': 'rgba(245, 158, 11, 0.3)', // amber
-      'water': 'rgba(6, 182, 212, 0.3)',      // cyan
-      'mountain': 'rgba(120, 113, 108, 0.3)', // stone
-      'forest': 'rgba(34, 197, 94, 0.3)',     // green
-      'desert': 'rgba(251, 191, 36, 0.3)',    // yellow
-      'other': 'rgba(156, 163, 175, 0.3)'     // gray
-    };
-    return colors[areaType] || colors['other'];
-  };
-
-  const getBorderColor = (areaType: string): string => {
-    const colors: { [key: string]: string } = {
-      'terrain': 'rgba(34, 197, 94, 0.8)',
-      'landmark': 'rgba(239, 68, 68, 0.8)',
-      'region': 'rgba(59, 130, 246, 0.8)',
-      'settlement': 'rgba(245, 158, 11, 0.8)',
-      'water': 'rgba(6, 182, 212, 0.8)',
-      'mountain': 'rgba(120, 113, 108, 0.8)',
-      'forest': 'rgba(34, 197, 94, 0.8)',
-      'desert': 'rgba(251, 191, 36, 0.8)',
-      'other': 'rgba(156, 163, 175, 0.8)'
-    };
-    return colors[areaType] || colors['other'];
-  };
-
   // Draw everything on canvas
   const draw = useCallback(() => {
     if (!canvasRef.current || !imageRef.current || !imageLoaded) {
@@ -160,61 +109,6 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     // Draw map image
     ctx.drawImage(imageRef.current, 0, 0, map.width, map.height);
     
-    // Draw map area overlays if enabled and available
-    if (showAreaOverlays && mapAreas.length > 0) {
-      mapAreas.forEach(area => {
-        if (area.bounding_box) {
-          const bbox = area.bounding_box;
-          const x = bbox.x1 * map.width;
-          const y = bbox.y1 * map.height;
-          const width = (bbox.x2 - bbox.x1) * map.width;
-          const height = (bbox.y2 - bbox.y1) * map.height;
-          
-          // Draw filled rectangle with transparency
-          ctx.fillStyle = getAreaColor(area.area_type);
-          ctx.fillRect(x, y, width, height);
-          
-          // Draw border
-          ctx.strokeStyle = getBorderColor(area.area_type);
-          ctx.lineWidth = 2 / scale;
-          ctx.setLineDash([]);
-          ctx.strokeRect(x, y, width, height);
-          
-          // Draw area label
-          ctx.fillStyle = getBorderColor(area.area_type);
-          ctx.font = `${Math.max(10, 12 / scale)}px Arial`;
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'top';
-          
-          // Add background for text readability
-          const textMetrics = ctx.measureText(area.area_name);
-          const textHeight = Math.max(10, 12 / scale);
-          const padding = 2 / scale;
-          
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.fillRect(
-            x + padding, 
-            y + padding, 
-            textMetrics.width + padding * 2, 
-            textHeight + padding * 2
-          );
-          
-          // Draw text
-          ctx.fillStyle = getBorderColor(area.area_type);
-          ctx.fillText(area.area_name, x + padding * 2, y + padding * 2);
-          
-          // Show area type as smaller text
-          ctx.font = `${Math.max(8, 10 / scale)}px Arial`;
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-          ctx.fillText(
-            `(${area.area_type})`, 
-            x + padding * 2, 
-            y + textHeight + padding * 3
-          );
-        }
-      });
-    }
-
     // Draw distance measurements
     distances.forEach(distance => {
       if (distance.points && distance.points.length > 1) {
@@ -300,7 +194,7 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     
     // Restore context
     ctx.restore();
-  }, [map, pins, distances, scale, offset, distancePoints, activeMode, hoveredPin, imageLoaded, mapAreas, showAreaOverlays]);
+  }, [map, pins, distances, scale, offset, distancePoints, activeMode, hoveredPin, imageLoaded]);
 
   // Draw on every render
   useEffect(() => {
@@ -492,9 +386,6 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
               <p>🖱️ Click and drag to pan</p>
               <p>🔍 Scroll to zoom</p>
               <p>📍 Hover over pins for details</p>
-              {showAreaOverlays && mapAreas.length > 0 && (
-                <p>🎨 AI-identified areas are highlighted</p>
-              )}
             </div>
           )}
           {activeMode === 'pin' && userRole === 'dm' && (
@@ -512,34 +403,16 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
         </div>
       )}
 
-      {/* Area overlay legend */}
-      {imageLoaded && showAreaOverlays && mapAreas.length > 0 && (
-        <div className="absolute bottom-4 left-4 bg-black bg-opacity-60 text-white p-3 rounded-lg text-sm max-w-xs">
-          <h4 className="font-semibold mb-2">AI-Identified Areas ({mapAreas.filter(a => a.bounding_box).length})</h4>
-          <div className="space-y-1 max-h-32 overflow-y-auto">
-            {mapAreas.filter(area => area.bounding_box).map((area) => (
-              <div key={area.id} className="flex items-center text-xs">
-                <div 
-                  className="w-3 h-3 mr-2 border border-white/50 rounded-sm"
-                  style={{ backgroundColor: getAreaColor(area.area_type) }}
-                ></div>
-                <span className="truncate">{area.area_name} ({area.area_type})</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Scale indicator */}
       {imageLoaded && map.scale_factor && (
-        <div className="absolute bottom-4 right-4 bg-black bg-opacity-60 text-white p-2 rounded text-sm">
+        <div className="absolute bottom-4 left-4 bg-black bg-opacity-60 text-white p-2 rounded text-sm">
           Scale: 1 pixel = {map.scale_factor} {map.scale_unit}
         </div>
       )}
 
       {/* Zoom level indicator */}
       {imageLoaded && (
-        <div className="absolute bottom-12 right-4 bg-black bg-opacity-60 text-white p-2 rounded text-sm">
+        <div className="absolute bottom-4 right-4 bg-black bg-opacity-60 text-white p-2 rounded text-sm">
           Zoom: {Math.round(scale * 100)}%
         </div>
       )}
