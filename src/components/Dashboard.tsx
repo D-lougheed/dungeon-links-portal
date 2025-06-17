@@ -16,7 +16,8 @@ import {
   Settings,
   User,
   Map,
-  Calendar
+  Calendar,
+  Square
 } from 'lucide-react';
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
@@ -24,6 +25,7 @@ import SlumberingAncientsAI from './SlumberingAncientsAI';
 import AdminTools from './AdminTools';
 import InteractiveMap from './InteractiveMap';
 import ViewOnlyInteractiveMap from './ViewOnlyInteractiveMap';
+import MapAreasManagement from './MapAreasManagement';
 import GameCalendar from './GameCalendar';
 import DiceRoller from './DiceRoller';
 
@@ -45,6 +47,14 @@ const Dashboard = () => {
       title: "Admin Interactive Maps",
       description: "Manage campaign world locations with an interactive map",
       icon: Map,
+      status: "Available",
+      dmOnly: true
+    },
+    {
+      id: "map-areas-management",
+      title: "Map Areas Management",
+      description: "Create and manage territorial areas on maps",
+      icon: Square,
       status: "Available",
       dmOnly: true
     },
@@ -143,6 +153,10 @@ const Dashboard = () => {
 
   if (activeFeature === "admin-interactive-map") {
     return <InteractiveMap onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "map-areas-management") {
+    return <MapAreasManagement onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "interactive-maps") {

@@ -82,6 +82,24 @@ export interface DistanceMeasurement {
   created_by?: string;
 }
 
+// Map Area type - matches the Supabase schema
+export interface MapArea {
+  id: string;
+  map_id: string;
+  area_name: string;
+  area_type: string;
+  description?: string | null;
+  terrain_features?: string[] | null;
+  landmarks?: string[] | null;
+  general_location?: string | null;
+  bounding_box?: { x1: number; y1: number; x2: number; y2: number } | null;
+  confidence_score?: number | null;
+  analysis_metadata?: any;
+  created_at?: string;
+  created_by?: string | null;
+  updated_at?: string;
+}
+
 // UI types for components that need pixel coordinates
 export interface UIPin {
   id: string;
