@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, Sparkles, Send, User, Bot } from 'lucide-react';
+import { ArrowLeft, Sparkles, Send, User, Bot, MapPin } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface SlumberingAncientsAIProps {
@@ -16,18 +16,20 @@ interface Message {
   content: string;
   isUser: boolean;
   timestamp: Date;
+  coordinates?: { x: number; y: number };
 }
 
 const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: "Greetings, seeker of ancient knowledge. I am your guide through the mysteries and lore of this realm. I can share what has been preserved in the sacred texts and chronicles, and when needed, I can also expand upon the existing lore to help answer your questions and enhance your understanding of this world. What ancient secrets or campaign mysteries do you wish to explore?",
+      content: "Greetings, seeker of ancient knowledge. I am your guide through the mysteries and lore of this realm. I have access to the sacred maps, marked locations, and territorial boundaries of your world. You can ask me about specific locations, provide coordinates for detailed analysis, or seek connections between different areas. What ancient secrets or spatial mysteries do you wish to explore?",
       isUser: false,
       timestamp: new Date()
     }
   ]);
   const [inputMessage, setInputMessage] = useState('');
+  const [coordinates, setCoordinates] = useState({ x: '', y: '' });
   const [isLoading, setIsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -47,11 +49,15 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;
 
+    const coords = (coordinates.x && coordinates.y) ? 
+      { x: parseFloat(coordinates.x), y: parseFloat(coordinates.y) } : null;
+
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: inputMessage,
+      content: inputMessage + (coords ? ` [Coordinates: ${coords.x}, ${coords.y}]` : ''),
       isUser: true,
-      timestamp: new Date()
+      timestamp: new Date(),
+      coordinates: coords || undefined
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -60,7 +66,11 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
 
     try {
       const { data, error } = await supabase.functions.invoke('slumbering-ancients-search', {
-        body: { message: inputMessage }
+        body: { 
+          message: inputMessage,
+          coordinates: coords,
+          mapId: '101f235a-5305-40ab-bece-35283bfcecbb'
+        }
       });
 
       if (error) {
@@ -96,6 +106,10 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
     }
   };
 
+  const clearCoordinates = () => {
+    setCoordinates({ x: '', y: '' });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100">
       <header className="bg-gradient-to-r from-purple-800 to-indigo-800 text-white shadow-lg">
@@ -112,7 +126,7 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
             <Sparkles className="h-8 w-8" />
             <div>
               <h1 className="text-2xl font-bold">Slumbering Ancients AI Assistant</h1>
-              <p className="text-purple-100 text-sm">Ancient Knowledge & Creative Expansion</p>
+              <p className="text-purple-100 text-sm">Ancient Knowledge & Spatial Analysis</p>
             </div>
           </div>
         </div>
@@ -126,23 +140,23 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
               Enhanced Ancient Knowledge Repository
             </CardTitle>
             <CardDescription>
-              This AI assistant draws from your campaign materials and can also create new content 
-              that fits your world when needed. It specializes in ancient lore, mysteries, and 
-              campaign enhancement while maintaining consistency with your established world.
+              This AI assistant has access to your campaign materials, maps, areas, and points of interest. 
+              It can analyze specific coordinates and make logical connections between locations, terrain, 
+              and lore to enhance your campaign experience.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="bg-purple-50 border border-purple-200 p-4 rounded-lg">
-              <h3 className="font-semibold text-purple-900 mb-2">What this assistant can do:</h3>
+              <h3 className="font-semibold text-purple-900 mb-2">Enhanced Capabilities:</h3>
               <ul className="text-purple-700 space-y-1">
-                <li>• <strong>Reference existing lore:</strong> Information from your scraped campaign materials</li>
-                <li>• <strong>Expand creatively:</strong> Generate new content that fits your world's tone and themes</li>
-                <li>• <strong>Connect ideas:</strong> Draw logical connections between different pieces of lore</li>
-                <li>• <strong>Enhance campaigns:</strong> Suggest how new elements might integrate with existing materials</li>
-                <li>• <strong>Maintain consistency:</strong> Keep all responses true to your established world-building</li>
+                <li>• <strong>Map Analysis:</strong> Provide coordinates to get contextual information about specific locations</li>
+                <li>• <strong>Spatial Reasoning:</strong> Understand relationships between areas, pins, and terrain features</li>
+                <li>• <strong>Logical Connections:</strong> Make meaningful connections between disparate map elements</li>
+                <li>• <strong>Campaign Integration:</strong> Access to your existing lore and world-building materials</li>
+                <li>• <strong>Scale Awareness:</strong> Uses map scale for distance and travel time calculations</li>
               </ul>
               <p className="text-purple-600 text-sm mt-3 italic">
-                The assistant will clearly indicate when it's drawing from existing materials versus creating new content.
+                Currently configured for map: 101f235a-5305-40ab-bece-35283bfcecbb
               </p>
             </div>
           </CardContent>
@@ -178,6 +192,12 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
                           : 'bg-gray-100 text-gray-900'
                       }`}>
                         <p className="whitespace-pre-wrap">{message.content}</p>
+                        {message.coordinates && (
+                          <div className="flex items-center mt-2 text-sm opacity-75">
+                            <MapPin className="w-3 h-3 mr-1" />
+                            {message.coordinates.x.toFixed(3)}, {message.coordinates.y.toFixed(3)}
+                          </div>
+                        )}
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
                         {message.timestamp.toLocaleTimeString()}
@@ -204,13 +224,54 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
               </div>
             </ScrollArea>
             
-            <div className="border-t border-purple-200 p-4">
+            <div className="border-t border-purple-200 p-4 space-y-3">
+              {/* Coordinates input */}
+              <div className="flex space-x-2 items-end">
+                <div className="flex-1">
+                  <label className="text-xs text-gray-600 mb-1 block">X Coordinate (0-1)</label>
+                  <Input
+                    value={coordinates.x}
+                    onChange={(e) => setCoordinates(prev => ({ ...prev, x: e.target.value }))}
+                    placeholder="0.5"
+                    className="text-sm"
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="1"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-600 mb-1 block">Y Coordinate (0-1)</label>
+                  <Input
+                    value={coordinates.y}
+                    onChange={(e) => setCoordinates(prev => ({ ...prev, y: e.target.value }))}
+                    placeholder="0.5"
+                    className="text-sm"
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="1"
+                  />
+                </div>
+                {(coordinates.x || coordinates.y) && (
+                  <Button 
+                    onClick={clearCoordinates}
+                    variant="outline"
+                    size="sm"
+                    className="mb-0"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              
+              {/* Message input */}
               <div className="flex space-x-2">
                 <Input
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="Ask about ancient lore, request new content, or explore campaign mysteries..."
+                  placeholder="Ask about locations, provide context, or explore spatial relationships..."
                   className="flex-1"
                   disabled={isLoading}
                 />
@@ -222,6 +283,13 @@ const SlumberingAncientsAI: React.FC<SlumberingAncientsAIProps> = ({ onBack }) =
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
+              
+              {(coordinates.x && coordinates.y) && (
+                <div className="text-xs text-purple-600 flex items-center">
+                  <MapPin className="w-3 h-3 mr-1" />
+                  Will analyze location at coordinates ({coordinates.x}, {coordinates.y})
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
