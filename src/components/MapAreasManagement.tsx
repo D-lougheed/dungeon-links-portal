@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import MapSelector from './map/MapSelector';
 import MapAreasCanvas from './map/MapAreasCanvas';
 import MapAreasManager from './map/MapAreasManager';
-import { Map, MapArea } from './map/types';
+import { Map, MapArea, Point } from './map/types';
 
 interface MapAreasManagementProps {
   onBack: () => void;
@@ -82,6 +82,12 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
           'x1' in area.bounding_box && 'y1' in area.bounding_box && 
           'x2' in area.bounding_box && 'y2' in area.bounding_box
           ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
+          : null,
+        polygon_coordinates: Array.isArray(area.polygon_coordinates)
+          ? area.polygon_coordinates.filter((point): point is Point => 
+              point && typeof point === 'object' && 
+              typeof point.x === 'number' && typeof point.y === 'number'
+            )
           : null
       }));
       
@@ -96,16 +102,8 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
     }
   };
 
-  const handleAreaAdd = async (boundingBox: { x1: number; y1: number; x2: number; y2: number }, areaName: string, areaType: string, description?: string) => {
+  const handleAreaAdd = async (coordinates: Point[], areaName: string, areaType: string, description?: string) => {
     if (!selectedMap || !user) return;
-
-    // Normalize coordinates
-    const normalizedBoundingBox = {
-      x1: boundingBox.x1 / selectedMap.width!,
-      y1: boundingBox.y1 / selectedMap.height!,
-      x2: boundingBox.x2 / selectedMap.width!,
-      y2: boundingBox.y2 / selectedMap.height!
-    };
 
     try {
       const { error } = await supabase
@@ -115,7 +113,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
           area_name: areaName,
           area_type: areaType,
           description: description || null,
-          bounding_box: normalizedBoundingBox,
+          polygon_coordinates: coordinates,
           created_by: user.id
         });
 
@@ -253,7 +251,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
             <div>
               <h2 className="text-3xl font-bold text-amber-900 mb-2">Choose a Map to Manage Areas</h2>
               <p className="text-amber-700">
-                Select a map below to add and manage territorial areas.
+                Select a map below to add and manage territorial areas with custom polygon shapes.
               </p>
             </div>
             

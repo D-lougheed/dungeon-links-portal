@@ -1,12 +1,13 @@
+
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { MapArea, Map } from './types';
+import { MapArea, Map, Point } from './types';
 
 interface MapAreasCanvasProps {
   map: Map;
   mapAreas: MapArea[];
   activeMode: 'view' | 'area';
-  onAreaAdd: (boundingBox: { x1: number; y1: number; x2: number; y2: number }, areaName: string, areaType: string, description?: string) => void;
+  onAreaAdd: (coordinates: Point[], areaName: string, areaType: string, description?: string) => void;
   userRole: string;
 }
 
@@ -24,12 +25,12 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
-  const [isDrawingArea, setIsDrawingArea] = useState(false);
-  const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null);
-  const [currentRect, setCurrentRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [isDrawingPolygon, setIsDrawingPolygon] = useState(false);
+  const [polygonPoints, setPolygonPoints] = useState<Point[]>([]);
+  const [currentMousePos, setCurrentMousePos] = useState<Point | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [showAreaDialog, setShowAreaDialog] = useState(false);
-  const [newAreaBounds, setNewAreaBounds] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [newAreaCoordinates, setNewAreaCoordinates] = useState<Point[] | null>(null);
 
   // Load and cache the image
   useEffect(() => {
@@ -92,6 +93,39 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     return colors[areaType] || colors.default;
   };
 
+  // Convert normalized coordinates to pixel coordinates
+  const normalizedToPixel = (point: Point): Point => ({
+    x: point.x * (map.width || 0),
+    y: point.y * (map.height || 0)
+  });
+
+  // Draw polygon on canvas
+  const drawPolygon = (ctx: CanvasRenderingContext2D, points: Point[], color: string, fill = true, stroke = true) => {
+    if (points.length < 2) return;
+
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    
+    if (points.length > 2) {
+      ctx.closePath();
+    }
+
+    if (fill && points.length > 2) {
+      ctx.fillStyle = color + '40'; // 25% transparency
+      ctx.fill();
+    }
+
+    if (stroke) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 / scale;
+      ctx.stroke();
+    }
+  };
+
   // Draw everything on canvas
   const draw = useCallback(() => {
     if (!canvasRef.current || !imageRef.current || !imageLoaded) return;
@@ -115,17 +149,37 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     
     // Draw existing map areas
     mapAreas.forEach(area => {
-      if (area.bounding_box) {
-        const bbox = area.bounding_box as { x1: number; y1: number; x2: number; y2: number };
+      const color = getAreaColor(area.area_type);
+      
+      if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
+        // Draw polygon area
+        const pixelPoints = area.polygon_coordinates.map(normalizedToPixel);
+        drawPolygon(ctx, pixelPoints, color);
+        
+        // Draw area label at centroid
+        if (pixelPoints.length > 2) {
+          const centroid = pixelPoints.reduce(
+            (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+            { x: 0, y: 0 }
+          );
+          centroid.x /= pixelPoints.length;
+          centroid.y /= pixelPoints.length;
+          
+          ctx.fillStyle = color;
+          ctx.font = `${12 / scale}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.fillText(area.area_name, centroid.x, centroid.y);
+        }
+      } else if (area.bounding_box) {
+        // Draw legacy rectangular area
+        const bbox = area.bounding_box;
         const x1 = bbox.x1 * (map.width || 0);
         const y1 = bbox.y1 * (map.height || 0);
         const x2 = bbox.x2 * (map.width || 0);
         const y2 = bbox.y2 * (map.height || 0);
         
-        const color = getAreaColor(area.area_type);
-        
         // Draw area rectangle with transparency
-        ctx.fillStyle = color + '40'; // 25% transparency
+        ctx.fillStyle = color + '40';
         ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
         
         // Draw area border
@@ -137,31 +191,47 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
         ctx.fillStyle = color;
         ctx.font = `${12 / scale}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText(
-          area.area_name,
-          (x1 + x2) / 2,
-          (y1 + y2) / 2
-        );
+        ctx.fillText(area.area_name, (x1 + x2) / 2, (y1 + y2) / 2);
       }
     });
 
-    // Draw current rectangle being drawn
-    if (currentRect) {
-      ctx.strokeStyle = '#ff6b35';
-      ctx.lineWidth = 2 / scale;
-      ctx.setLineDash([5 / scale, 5 / scale]);
-      ctx.strokeRect(
-        Math.min(currentRect.x1, currentRect.x2),
-        Math.min(currentRect.y1, currentRect.y2),
-        Math.abs(currentRect.x2 - currentRect.x1),
-        Math.abs(currentRect.y2 - currentRect.y1)
-      );
-      ctx.setLineDash([]);
+    // Draw current polygon being drawn
+    if (isDrawingPolygon && polygonPoints.length > 0) {
+      // Draw completed segments
+      if (polygonPoints.length > 1) {
+        drawPolygon(ctx, polygonPoints, '#ff6b35', false, true);
+      }
+      
+      // Draw line to current mouse position
+      if (currentMousePos && polygonPoints.length > 0) {
+        ctx.strokeStyle = '#ff6b35';
+        ctx.lineWidth = 2 / scale;
+        ctx.setLineDash([5 / scale, 5 / scale]);
+        ctx.beginPath();
+        ctx.moveTo(polygonPoints[polygonPoints.length - 1].x, polygonPoints[polygonPoints.length - 1].y);
+        ctx.lineTo(currentMousePos.x, currentMousePos.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      
+      // Draw polygon points
+      polygonPoints.forEach((point, index) => {
+        ctx.fillStyle = '#ff6b35';
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4 / scale, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Label the points
+        ctx.fillStyle = '#000';
+        ctx.font = `${10 / scale}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText((index + 1).toString(), point.x, point.y - 8 / scale);
+      });
     }
     
     // Restore context
     ctx.restore();
-  }, [map, mapAreas, scale, offset, currentRect, imageLoaded]);
+  }, [map, mapAreas, scale, offset, isDrawingPolygon, polygonPoints, currentMousePos, imageLoaded]);
 
   // Draw on every render
   useEffect(() => {
@@ -173,23 +243,6 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     if (activeMode === 'view') {
       setIsDragging(true);
       setLastMousePos({ x: e.clientX, y: e.clientY });
-    } else if (activeMode === 'area' && userRole === 'dm') {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      // Convert to map coordinates
-      const mapX = (mouseX - offset.x) / scale;
-      const mapY = (mouseY - offset.y) / scale;
-
-      if (mapX >= 0 && mapX <= (map.width || 0) && mapY >= 0 && mapY <= (map.height || 0)) {
-        setIsDrawingArea(true);
-        setStartPoint({ x: mapX, y: mapY });
-        setCurrentRect({ x1: mapX, y1: mapY, x2: mapX, y2: mapY });
-      }
     }
   };
 
@@ -211,36 +264,73 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
       }));
       
       setLastMousePos({ x: e.clientX, y: e.clientY });
-    } else if (isDrawingArea && startPoint) {
+    } else if (activeMode === 'area' && isDrawingPolygon) {
+      // Update current mouse position for preview line
       const mapX = (mouseX - offset.x) / scale;
       const mapY = (mouseY - offset.y) / scale;
-
-      setCurrentRect({
-        x1: startPoint.x,
-        y1: startPoint.y,
-        x2: Math.max(0, Math.min(map.width || 0, mapX)),
-        y2: Math.max(0, Math.min(map.height || 0, mapY))
-      });
+      
+      if (mapX >= 0 && mapX <= (map.width || 0) && mapY >= 0 && mapY <= (map.height || 0)) {
+        setCurrentMousePos({ x: mapX, y: mapY });
+      }
     }
   };
 
   const handleMouseUp = () => {
     if (isDragging) {
       setIsDragging(false);
-    } else if (isDrawingArea && currentRect) {
-      // Only create area if it has meaningful size
-      const width = Math.abs(currentRect.x2 - currentRect.x1);
-      const height = Math.abs(currentRect.y2 - currentRect.y1);
-      
-      if (width > 10 && height > 10) {
-        setNewAreaBounds(currentRect);
-        setShowAreaDialog(true);
-      }
-      
-      setIsDrawingArea(false);
-      setStartPoint(null);
-      setCurrentRect(null);
     }
+  };
+
+  const handleCanvasClick = (e: React.MouseEvent) => {
+    if (activeMode !== 'area' || userRole !== 'dm') return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Convert to map coordinates
+    const mapX = (mouseX - offset.x) / scale;
+    const mapY = (mouseY - offset.y) / scale;
+
+    if (mapX >= 0 && mapX <= (map.width || 0) && mapY >= 0 && mapY <= (map.height || 0)) {
+      const newPoint = { x: mapX, y: mapY };
+      
+      if (!isDrawingPolygon) {
+        // Start new polygon
+        setIsDrawingPolygon(true);
+        setPolygonPoints([newPoint]);
+      } else {
+        // Add point to existing polygon
+        setPolygonPoints(prev => [...prev, newPoint]);
+      }
+    }
+  };
+
+  const handleFinishPolygon = () => {
+    if (polygonPoints.length >= 3) {
+      // Convert to normalized coordinates
+      const normalizedPoints = polygonPoints.map(point => ({
+        x: point.x / (map.width || 1),
+        y: point.y / (map.height || 1)
+      }));
+      
+      setNewAreaCoordinates(normalizedPoints);
+      setShowAreaDialog(true);
+    }
+    
+    // Reset polygon drawing state
+    setIsDrawingPolygon(false);
+    setPolygonPoints([]);
+    setCurrentMousePos(null);
+  };
+
+  const handleCancelPolygon = () => {
+    setIsDrawingPolygon(false);
+    setPolygonPoints([]);
+    setCurrentMousePos(null);
   };
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -274,11 +364,11 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
   }, [scale, offset]);
 
   const handleAreaSubmit = (areaName: string, areaType: string, description?: string) => {
-    if (newAreaBounds) {
-      onAreaAdd(newAreaBounds, areaName, areaType, description);
+    if (newAreaCoordinates) {
+      onAreaAdd(newAreaCoordinates, areaName, areaType, description);
     }
     setShowAreaDialog(false);
-    setNewAreaBounds(null);
+    setNewAreaCoordinates(null);
   };
 
   return (
@@ -303,6 +393,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onClick={handleCanvasClick}
           onWheel={handleWheel}
           style={{
             cursor: activeMode === 'view' ? (isDragging ? 'grabbing' : 'grab') : 'crosshair'
@@ -320,10 +411,36 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
             )}
             {activeMode === 'area' && userRole === 'dm' && (
               <div>
-                <p>📐 Click and drag to define area</p>
-                <p>🎯 Release to set boundaries</p>
+                {!isDrawingPolygon && <p>📐 Click to start drawing area</p>}
+                {isDrawingPolygon && (
+                  <div>
+                    <p>📍 Click to add points ({polygonPoints.length} points)</p>
+                    <p>🎯 Need at least 3 points to finish</p>
+                  </div>
+                )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Drawing controls */}
+        {activeMode === 'area' && userRole === 'dm' && isDrawingPolygon && (
+          <div className="absolute bottom-4 left-4 space-x-2">
+            <Button
+              onClick={handleFinishPolygon}
+              disabled={polygonPoints.length < 3}
+              size="sm"
+              className="bg-green-600 hover:bg-green-700"
+            >
+              Finish Area ({polygonPoints.length} points)
+            </Button>
+            <Button
+              onClick={handleCancelPolygon}
+              variant="outline"
+              size="sm"
+            >
+              Cancel
+            </Button>
           </div>
         )}
 
@@ -394,7 +511,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
                   variant="outline"
                   onClick={() => {
                     setShowAreaDialog(false);
-                    setNewAreaBounds(null);
+                    setNewAreaCoordinates(null);
                   }}
                 >
                   Cancel

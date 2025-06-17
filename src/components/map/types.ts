@@ -82,7 +82,13 @@ export interface DistanceMeasurement {
   created_by?: string;
 }
 
-// Map Area type - matches the Supabase schema
+// Point type for polygon coordinates
+export interface Point {
+  x: number;
+  y: number;
+}
+
+// Map Area type - updated to support both bounding boxes and polygons
 export interface MapArea {
   id: string;
   map_id: string;
@@ -93,6 +99,7 @@ export interface MapArea {
   landmarks?: string[] | null;
   general_location?: string | null;
   bounding_box?: { x1: number; y1: number; x2: number; y2: number } | null;
+  polygon_coordinates?: Point[] | null;
   confidence_score?: number | null;
   analysis_metadata?: any;
   created_at?: string;

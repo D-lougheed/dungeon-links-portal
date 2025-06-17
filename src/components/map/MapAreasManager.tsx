@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Trash2, Edit, Eye, EyeOff } from 'lucide-react';
+import { Trash2, Edit, Polygon } from 'lucide-react';
 import { MapArea } from './types';
 
 interface MapAreasManagerProps {
@@ -60,13 +60,22 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
     return colors[areaType] || 'bg-gray-100 text-gray-800';
   };
 
+  const getAreaShape = (area: MapArea) => {
+    if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
+      return `Polygon (${area.polygon_coordinates.length} points)`;
+    } else if (area.bounding_box) {
+      return 'Rectangle (legacy)';
+    }
+    return 'Unknown shape';
+  };
+
   return (
     <Card className="h-fit">
       <CardHeader>
         <CardTitle className="text-lg text-amber-900">Map Areas</CardTitle>
         {activeMode === 'area' && userRole === 'dm' && (
           <p className="text-sm text-amber-700">
-            Click and drag on the map to create new areas
+            Click points on the map to create custom polygon areas
           </p>
         )}
       </CardHeader>
@@ -126,9 +135,15 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <h4 className="font-medium text-amber-900">{area.area_name}</h4>
-                        <Badge className={`text-xs ${getAreaTypeColor(area.area_type)}`}>
-                          {area.area_type}
-                        </Badge>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <Badge className={`text-xs ${getAreaTypeColor(area.area_type)}`}>
+                            {area.area_type}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            <Polygon className="h-3 w-3 mr-1" />
+                            {getAreaShape(area)}
+                          </Badge>
+                        </div>
                       </div>
                       {userRole === 'dm' && (
                         <div className="flex space-x-1">
@@ -196,7 +211,7 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
         {userRole === 'dm' && activeMode === 'view' && (
           <div className="pt-4 border-t border-amber-200">
             <p className="text-xs text-amber-700 text-center">
-              Switch to "Add Area" mode to create new areas
+              Switch to "Add Area" mode to create custom polygon areas
             </p>
           </div>
         )}
