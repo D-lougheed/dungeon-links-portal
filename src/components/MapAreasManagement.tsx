@@ -77,7 +77,12 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
           : [],
         landmarks: Array.isArray(area.landmarks) 
           ? area.landmarks.filter((item): item is string => typeof item === 'string')
-          : []
+          : [],
+        bounding_box: area.bounding_box && typeof area.bounding_box === 'object' && 
+          'x1' in area.bounding_box && 'y1' in area.bounding_box && 
+          'x2' in area.bounding_box && 'y2' in area.bounding_box
+          ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
+          : null
       }));
       
       setMapAreas(transformedData);
