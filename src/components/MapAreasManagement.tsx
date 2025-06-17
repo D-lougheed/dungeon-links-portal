@@ -72,8 +72,12 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
       // Transform the data to match our MapArea interface
       const transformedData: MapArea[] = (data || []).map(area => ({
         ...area,
-        terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features : [],
-        landmarks: Array.isArray(area.landmarks) ? area.landmarks : []
+        terrain_features: Array.isArray(area.terrain_features) 
+          ? area.terrain_features.filter((item): item is string => typeof item === 'string')
+          : [],
+        landmarks: Array.isArray(area.landmarks) 
+          ? area.landmarks.filter((item): item is string => typeof item === 'string')
+          : []
       }));
       
       setMapAreas(transformedData);
