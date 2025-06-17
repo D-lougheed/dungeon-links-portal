@@ -62,6 +62,7 @@ export type Database = {
           description: string | null
           general_location: string | null
           id: string
+          is_visible: boolean
           landmarks: Json | null
           map_id: string
           polygon_coordinates: Json | null
@@ -79,6 +80,7 @@ export type Database = {
           description?: string | null
           general_location?: string | null
           id?: string
+          is_visible?: boolean
           landmarks?: Json | null
           map_id: string
           polygon_coordinates?: Json | null
@@ -96,6 +98,7 @@ export type Database = {
           description?: string | null
           general_location?: string | null
           id?: string
+          is_visible?: boolean
           landmarks?: Json | null
           map_id?: string
           polygon_coordinates?: Json | null

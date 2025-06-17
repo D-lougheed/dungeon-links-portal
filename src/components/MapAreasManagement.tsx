@@ -103,7 +103,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
             ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
             : null,
           polygon_coordinates: polygonCoordinates,
-          is_visible: area.is_visible !== false // Default to true if not specified
+          // is_visible is now included from the database query, so we don't need to set a default
         };
       });
       
@@ -214,7 +214,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
     const area = mapAreas.find(a => a.id === areaId);
     if (!area) return;
 
-    const newVisibility = area.is_visible === false ? true : false;
+    const newVisibility = !area.is_visible;
     await handleAreaUpdate(areaId, { is_visible: newVisibility });
   };
 
