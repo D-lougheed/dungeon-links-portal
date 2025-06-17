@@ -176,9 +176,19 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
 
       await loadMapAreas(selectedMapId);
 
+      const existingAreas = data.existing_areas || 0;
+      const newAreas = data.new_areas_found || 0;
+      
+      let toastDescription = '';
+      if (newAreas === 0) {
+        toastDescription = `No new areas found. Map "${data.map_name}" already has ${existingAreas} identified areas.`;
+      } else {
+        toastDescription = `Found ${newAreas} new areas! Total areas for "${data.map_name}": ${data.total_areas}`;
+      }
+
       toast({
         title: "Map Analysis Complete",
-        description: `Successfully analyzed "${data.map_name}" and identified ${data.areas_analyzed} distinct areas.`,
+        description: toastDescription,
       });
 
     } catch (error) {
@@ -681,7 +691,8 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
               Map Image Analysis
             </CardTitle>
             <CardDescription>
-              Analyze map images using AI to identify terrain features, landmarks, and regions with their coordinates automatically.
+              Analyze map images using AI to identify terrain features, landmarks, and regions with their coordinates automatically. 
+              Re-analyzing the same map will only add new areas - no duplicates will be created.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -720,7 +731,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                   className="bg-purple-600 hover:bg-purple-700"
                 >
                   {isAnalyzingMap ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />}
-                  {isAnalyzingMap ? 'Analyzing Map...' : 'Analyze Selected Map'}
+                  {isAnalyzingMap ? 'Analyzing Map...' : (mapAreas.length > 0 ? 'Find New Areas' : 'Analyze Selected Map')}
                 </Button>
               </div>
 
@@ -787,9 +798,10 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <h4 className="font-medium text-blue-900 mb-1">💡 How It Works</h4>
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• <strong>AI Vision Analysis:</strong> Uses GPT-4 Vision to analyze map images</li>
+                  <li>• <strong>Incremental Analysis:</strong> Re-analyzing finds only NEW areas, preventing duplicates</li>
                   <li>• <strong>Coordinate Detection:</strong> AI identifies bounding box coordinates for each area</li>
                   <li>• <strong>Automatic Detection:</strong> Identifies terrain, landmarks, regions, and settlements</li>
-                  <li>• <strong>Structured Results:</strong> Stores analysis with coordinates in database</li>
+                  <li>• <strong>Smart Deduplication:</strong> AI knows what has been found and won't re-add existing areas</li>
                   <li>• <strong>Location Mapping:</strong> Provides both general location and precise coordinates</li>
                   <li>• <strong>Confidence Scoring:</strong> AI provides confidence levels for each identification</li>
                 </ul>
@@ -1005,7 +1017,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <li>• Content deduplication: Hash-based change detection</li>
                 <li>• Rate limiting: Conservative with timeout protection</li>
                 <li>• Chunk size: 50 files (full/incremental), 25 files (missing)</li>
-                <li>• Map analysis: AI-powered terrain and landmark identification</li>
+                <li>• Map analysis: AI-powered terrain and landmark identification with smart deduplication</li>
               </ul>
             </div>
           </CardContent>

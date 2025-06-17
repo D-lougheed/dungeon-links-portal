@@ -48,14 +48,31 @@ serve(async (req) => {
 
     console.log(`🗺️ Found map: ${map.name}`);
 
-    // Clear existing analysis for this map
-    const { error: deleteError } = await supabase
+    // Get existing areas for this map to avoid duplicates
+    const { data: existingAreas, error: existingError } = await supabase
       .from('map_areas')
-      .delete()
+      .select('area_name, area_type, general_location, bounding_box')
       .eq('map_id', mapId);
 
-    if (deleteError) {
-      console.error('⚠️ Error clearing existing analysis:', deleteError);
+    if (existingError) {
+      console.error('⚠️ Error fetching existing areas:', existingError);
+    }
+
+    const existingAreasInfo = existingAreas || [];
+    console.log(`📋 Found ${existingAreasInfo.length} existing areas to avoid duplicating`);
+
+    // Create a summary of existing areas for the AI
+    let existingAreasSummary = '';
+    if (existingAreasInfo.length > 0) {
+      existingAreasSummary = `
+
+IMPORTANT: The following areas have already been identified for this map. DO NOT include these in your analysis:
+
+${existingAreasInfo.map((area, index) => 
+  `${index + 1}. ${area.area_name} (${area.area_type}) - ${area.general_location || 'location unknown'}`
+).join('\n')}
+
+Only identify NEW areas that are distinctly different from the ones listed above. If an area is similar to an existing one, do not include it unless it represents a clearly separate and distinct feature.`;
     }
 
     // Analyze the image using OpenAI Vision API
@@ -77,9 +94,11 @@ serve(async (req) => {
                 type: "text",
                 text: `You are analyzing a fantasy map image. Please identify and categorize different areas, landmarks, and terrain features with their approximate locations on the map.
 
-For each area you identify, you MUST provide normalized bounding box coordinates (0.0 to 1.0) that represent where that area is located on the image.
+${existingAreasSummary}
 
-Return your analysis as a JSON array where each object represents a distinct area or feature with this structure:
+For each NEW area you identify (that is not already listed above), you MUST provide normalized bounding box coordinates (0.0 to 1.0) that represent where that area is located on the image.
+
+Return your analysis as a JSON array where each object represents a distinct NEW area or feature with this structure:
 {
   "area_name": "descriptive name",
   "area_type": "terrain|landmark|region|settlement|water|mountain|forest|desert|other",
@@ -111,7 +130,9 @@ Focus on identifying:
 4. Geographic regions with clear boundaries
 5. Political or named areas if visible
 
-Provide between 5-15 distinct areas depending on map complexity. Make sure each area has a unique name, clear boundaries, and accurate bounding box coordinates.`
+CRITICAL: Only include areas that are NEW and not already identified in the existing areas list above. If no new areas are found, return an empty array [].
+
+Provide between 0-15 distinct NEW areas depending on what you can identify that hasn't been found before.`
               },
               {
                 type: "image_url",
@@ -153,9 +174,29 @@ Provide between 5-15 distinct areas depending on map complexity. Make sure each 
       throw new Error('Failed to parse analysis results');
     }
 
-    console.log(`📊 Parsed ${analysisResults.length} areas from analysis`);
+    console.log(`📊 Parsed ${analysisResults.length} NEW areas from analysis`);
 
-    // Validate and store the analysis results in the database
+    // If no new areas found, return early
+    if (analysisResults.length === 0) {
+      console.log('✅ No new areas identified - analysis complete');
+      return new Response(
+        JSON.stringify({
+          success: true,
+          map_id: mapId,
+          map_name: map.name,
+          existing_areas: existingAreasInfo.length,
+          new_areas_found: 0,
+          areas_added: 0,
+          message: `Analysis complete for "${map.name}". No new areas were identified beyond the ${existingAreasInfo.length} existing areas.`
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        }
+      );
+    }
+
+    // Validate and store the NEW analysis results in the database
     const areasToInsert = analysisResults.map((area: any) => {
       // Validate bounding box if provided
       let boundingBox = null;
@@ -187,7 +228,8 @@ Provide between 5-15 distinct areas depending on map complexity. Make sure each 
           analyzed_at: new Date().toISOString(),
           model_used: 'gpt-4o',
           original_analysis: area,
-          has_coordinates: boundingBox !== null
+          has_coordinates: boundingBox !== null,
+          incremental_analysis: existingAreasInfo.length > 0
         }
       };
     });
@@ -202,20 +244,23 @@ Provide between 5-15 distinct areas depending on map complexity. Make sure each 
       throw new Error(`Failed to store analysis: ${insertError.message}`);
     }
 
-    console.log(`✅ Successfully stored ${insertedAreas.length} map areas`);
+    console.log(`✅ Successfully stored ${insertedAreas.length} NEW map areas`);
 
     // Count how many areas have bounding boxes
     const areasWithCoordinates = insertedAreas.filter(area => area.bounding_box !== null).length;
+    const totalAreas = existingAreasInfo.length + insertedAreas.length;
 
     return new Response(
       JSON.stringify({
         success: true,
         map_id: mapId,
         map_name: map.name,
-        areas_analyzed: insertedAreas.length,
-        areas_with_coordinates: areasWithCoordinates,
+        existing_areas: existingAreasInfo.length,
+        new_areas_found: insertedAreas.length,
+        new_areas_with_coordinates: areasWithCoordinates,
+        total_areas: totalAreas,
         areas: insertedAreas,
-        message: `Successfully analyzed map "${map.name}" and identified ${insertedAreas.length} distinct areas (${areasWithCoordinates} with coordinates)`
+        message: `Successfully analyzed map "${map.name}". Found ${insertedAreas.length} new areas (${areasWithCoordinates} with coordinates). Total areas: ${totalAreas}`
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
