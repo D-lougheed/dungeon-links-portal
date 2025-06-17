@@ -112,18 +112,36 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
       
       if (error) throw error;
       
-      // Transform the data to match our MapArea interface
-      const transformedAreas: MapArea[] = (data || []).map(area => ({
-        id: area.id,
-        area_name: area.area_name,
-        area_type: area.area_type,
-        description: area.description,
-        terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features.map(item => String(item)) : [],
-        landmarks: Array.isArray(area.landmarks) ? area.landmarks.map(item => String(item)) : [],
-        general_location: area.general_location,
-        confidence_score: area.confidence_score,
-        bounding_box: area.bounding_box
-      }));
+      // Transform the data to match our MapArea interface with proper type conversion
+      const transformedAreas: MapArea[] = (data || []).map(area => {
+        // Handle bounding_box conversion from Json to expected type
+        let boundingBox: { x1: number; y1: number; x2: number; y2: number } | null = null;
+        
+        if (area.bounding_box && typeof area.bounding_box === 'object' && area.bounding_box !== null) {
+          const bbox = area.bounding_box as any;
+          if (typeof bbox.x1 === 'number' && typeof bbox.y1 === 'number' && 
+              typeof bbox.x2 === 'number' && typeof bbox.y2 === 'number') {
+            boundingBox = {
+              x1: bbox.x1,
+              y1: bbox.y1,
+              x2: bbox.x2,
+              y2: bbox.y2
+            };
+          }
+        }
+
+        return {
+          id: area.id,
+          area_name: area.area_name,
+          area_type: area.area_type,
+          description: area.description,
+          terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features.map(item => String(item)) : [],
+          landmarks: Array.isArray(area.landmarks) ? area.landmarks.map(item => String(item)) : [],
+          general_location: area.general_location,
+          confidence_score: area.confidence_score,
+          bounding_box: boundingBox
+        };
+      });
       
       setMapAreas(transformedAreas);
     } catch (error) {
