@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw, Clock, Zap, Search, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Settings, Database, Bot, Globe, Trash2, Download, Upload, RefreshCw, Clock, Zap, Search, AlertTriangle, MapPin, Eye } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -34,14 +34,39 @@ interface ProgressState {
   hasMoreFiles?: boolean;
 }
 
+interface MapData {
+  id: string;
+  name: string;
+  description?: string;
+  width: number;
+  height: number;
+  image_url: string;
+  created_at: string;
+}
+
+interface MapArea {
+  id: string;
+  area_name: string;
+  area_type: string;
+  description?: string;
+  terrain_features: string[];
+  landmarks: string[];
+  general_location?: string;
+  confidence_score?: number;
+}
+
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isIncrementalLoading, setIsIncrementalLoading] = useState(false);
   const [isMissingLoading, setIsMissingLoading] = useState(false);
+  const [isAnalyzingMap, setIsAnalyzingMap] = useState(false);
   const [scraperStatus, setScraperStatus] = useState('');
   const [scrapingDetails, setScrapingDetails] = useState<ScrapingStatus>({});
   const [wikiStats, setWikiStats] = useState({ totalPages: 0, lastUpdate: null });
   const [wikiPages, setWikiPages] = useState<any[]>([]);
+  const [maps, setMaps] = useState<MapData[]>([]);
+  const [selectedMapId, setSelectedMapId] = useState<string>('');
+  const [mapAreas, setMapAreas] = useState<MapArea[]>([]);
   const [progressState, setProgressState] = useState<ProgressState>({
     isActive: false,
     totalFiles: 0,
@@ -54,7 +79,83 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
   useEffect(() => {
     loadWikiStats();
     loadWikiPages();
+    loadMaps();
   }, []);
+
+  const loadMaps = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('maps')
+        .select('id, name, description, width, height, image_url, created_at')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setMaps(data || []);
+    } catch (error) {
+      console.error('Error loading maps:', error);
+    }
+  };
+
+  const loadMapAreas = async (mapId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('map_areas')
+        .select('*')
+        .eq('map_id', mapId)
+        .order('area_name');
+      
+      if (error) throw error;
+      setMapAreas(data || []);
+    } catch (error) {
+      console.error('Error loading map areas:', error);
+    }
+  };
+
+  const handleAnalyzeMap = async () => {
+    if (!selectedMapId) {
+      toast({
+        title: "No Map Selected",
+        description: "Please select a map to analyze.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsAnalyzingMap(true);
+    console.log('🔍 Starting map analysis for:', selectedMapId);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-map', {
+        body: { mapId: selectedMapId }
+      });
+
+      if (error) {
+        console.error('❌ Analysis error:', error);
+        throw error;
+      }
+
+      console.log('✅ Analysis complete:', data);
+
+      await loadMapAreas(selectedMapId);
+
+      toast({
+        title: "Map Analysis Complete",
+        description: `Successfully analyzed "${data.map_name}" and identified ${data.areas_analyzed} distinct areas.`,
+      });
+
+    } catch (error) {
+      console.error('💥 Map analysis error:', error);
+      const errorMessage = error.message || 'Unknown error occurred';
+      
+      toast({
+        title: "Analysis Failed",
+        description: `There was an error analyzing the map: ${errorMessage}`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzingMap(false);
+    }
+  };
 
   const loadWikiStats = async () => {
     try {
@@ -458,7 +559,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
             <Settings className="h-8 w-8" />
             <div>
               <h1 className="text-2xl font-bold">Admin Tools</h1>
-              <p className="text-slate-100 text-sm">Google Drive Scraping & AI Configuration</p>
+              <p className="text-slate-100 text-sm">Google Drive Scraping, Map Analysis & AI Configuration</p>
             </div>
           </div>
         </div>
@@ -533,6 +634,113 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
             </CardContent>
           </Card>
         )}
+
+        {/* Map Image Analysis Section */}
+        <Card className="border-slate-200 mb-6">
+          <CardHeader>
+            <CardTitle className="text-slate-900 flex items-center">
+              <MapPin className="h-5 w-5 mr-2" />
+              Map Image Analysis
+            </CardTitle>
+            <CardDescription>
+              Analyze map images using AI to identify terrain features, landmarks, and regions automatically.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+                <h3 className="font-medium text-slate-900 mb-2">Available Maps</h3>
+                {maps.length > 0 ? (
+                  <div className="space-y-2">
+                    <select
+                      className="w-full p-2 border border-slate-300 rounded-md"
+                      value={selectedMapId}
+                      onChange={(e) => {
+                        setSelectedMapId(e.target.value);
+                        if (e.target.value) {
+                          loadMapAreas(e.target.value);
+                        }
+                      }}
+                    >
+                      <option value="">Select a map to analyze...</option>
+                      {maps.map((map) => (
+                        <option key={map.id} value={map.id}>
+                          {map.name} ({map.width}x{map.height})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <p className="text-slate-600">No maps available. Upload maps in the Interactive Maps section first.</p>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <Button 
+                  onClick={handleAnalyzeMap}
+                  disabled={!selectedMapId || isAnalyzingMap}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  {isAnalyzingMap ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />}
+                  {isAnalyzingMap ? 'Analyzing Map...' : 'Analyze Selected Map'}
+                </Button>
+              </div>
+
+              {/* Map Analysis Results */}
+              {selectedMapId && mapAreas.length > 0 && (
+                <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+                  <h4 className="font-medium text-green-900 mb-3">Analysis Results ({mapAreas.length} areas identified)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto">
+                    {mapAreas.map((area) => (
+                      <div key={area.id} className="bg-white border border-green-200 p-3 rounded-lg">
+                        <div className="flex justify-between items-start mb-2">
+                          <h5 className="font-semibold text-green-900">{area.area_name}</h5>
+                          <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                            {area.area_type}
+                          </span>
+                        </div>
+                        {area.description && (
+                          <p className="text-sm text-green-700 mb-2">{area.description}</p>
+                        )}
+                        {area.general_location && (
+                          <p className="text-xs text-green-600 mb-1">
+                            <strong>Location:</strong> {area.general_location}
+                          </p>
+                        )}
+                        {area.terrain_features.length > 0 && (
+                          <p className="text-xs text-green-600 mb-1">
+                            <strong>Terrain:</strong> {area.terrain_features.join(', ')}
+                          </p>
+                        )}
+                        {area.landmarks.length > 0 && (
+                          <p className="text-xs text-green-600 mb-1">
+                            <strong>Landmarks:</strong> {area.landmarks.join(', ')}
+                          </p>
+                        )}
+                        {area.confidence_score && (
+                          <p className="text-xs text-green-600">
+                            <strong>Confidence:</strong> {Math.round(area.confidence_score * 100)}%
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-1">💡 How It Works</h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• <strong>AI Vision Analysis:</strong> Uses GPT-4 Vision to analyze map images</li>
+                  <li>• <strong>Automatic Detection:</strong> Identifies terrain, landmarks, regions, and settlements</li>
+                  <li>• <strong>Structured Results:</strong> Stores analysis in database for future reference</li>
+                  <li>• <strong>Location Mapping:</strong> Provides general location information for each area</li>
+                  <li>• <strong>Confidence Scoring:</strong> AI provides confidence levels for each identification</li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Google Drive Scraping Section */}
         <Card className="border-slate-200 mb-6">
@@ -741,6 +949,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <li>• Content deduplication: Hash-based change detection</li>
                 <li>• Rate limiting: Conservative with timeout protection</li>
                 <li>• Chunk size: 50 files (full/incremental), 25 files (missing)</li>
+                <li>• Map analysis: AI-powered terrain and landmark identification</li>
               </ul>
             </div>
           </CardContent>

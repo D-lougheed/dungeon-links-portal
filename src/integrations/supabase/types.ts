@@ -50,6 +50,65 @@ export type Database = {
           },
         ]
       }
+      map_areas: {
+        Row: {
+          analysis_metadata: Json | null
+          area_name: string
+          area_type: string
+          bounding_box: Json | null
+          confidence_score: number | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          general_location: string | null
+          id: string
+          landmarks: Json | null
+          map_id: string
+          terrain_features: Json | null
+          updated_at: string
+        }
+        Insert: {
+          analysis_metadata?: Json | null
+          area_name: string
+          area_type: string
+          bounding_box?: Json | null
+          confidence_score?: number | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          general_location?: string | null
+          id?: string
+          landmarks?: Json | null
+          map_id: string
+          terrain_features?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          analysis_metadata?: Json | null
+          area_name?: string
+          area_type?: string
+          bounding_box?: Json | null
+          confidence_score?: number | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          general_location?: string | null
+          id?: string
+          landmarks?: Json | null
+          map_id?: string
+          terrain_features?: Json | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "map_areas_map_id_fkey"
+            columns: ["map_id"]
+            isOneToOne: false
+            referencedRelation: "maps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       maps: {
         Row: {
           created_at: string | null
