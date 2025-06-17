@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import MapSelector from './map/MapSelector';
 import MapAreasCanvas from './map/MapAreasCanvas';
 import MapAreasManager from './map/MapAreasManager';
-import { Map, MapArea, Point } from './map/types';
+import { Map, MapArea, Point, RegionType } from './map/types';
 
 interface MapAreasManagementProps {
   onBack: () => void;
@@ -24,7 +24,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
   const [isLoading, setIsLoading] = useState(true);
   
   // New state for region types and visibility
-  const [regionTypes, setRegionTypes] = useState<{ id: string; name: string; color: string; is_active: boolean }[]>([]);
+  const [regionTypes, setRegionTypes] = useState<RegionType[]>([]);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
   // Load maps on component mount
@@ -103,7 +103,6 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
             ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
             : null,
           polygon_coordinates: polygonCoordinates,
-          // is_visible is now included from the database query, so we don't need to set a default
         };
       });
       
@@ -118,27 +117,24 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
     }
   };
 
-  // Load custom region types (for now, we'll store them in local state)
-  const loadRegionTypes = () => {
-    // For now, we'll use local storage to persist custom types
-    // In a real app, you'd want to store these in the database
-    const storedTypes = localStorage.getItem(`regionTypes_${selectedMap?.id}`);
-    if (storedTypes) {
-      try {
-        setRegionTypes(JSON.parse(storedTypes));
-      } catch (error) {
-        console.error('Error parsing stored region types:', error);
-        setRegionTypes([]);
-      }
-    } else {
-      setRegionTypes([]);
-    }
-  };
+  // Load custom region types from database
+  const loadRegionTypes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('region_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
 
-  // Save region types to local storage
-  const saveRegionTypes = (types: typeof regionTypes) => {
-    if (selectedMap) {
-      localStorage.setItem(`regionTypes_${selectedMap.id}`, JSON.stringify(types));
+      if (error) throw error;
+      setRegionTypes(data || []);
+    } catch (error) {
+      console.error('Error loading region types:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load region types",
+        variant: "destructive",
+      });
     }
   };
 
@@ -166,47 +162,93 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
   };
 
   // Handle adding custom region type
-  const handleAddRegionType = (name: string, color: string) => {
-    const newType = {
-      id: `custom_${Date.now()}`,
-      name,
-      color,
-      is_active: true
-    };
-    const updatedTypes = [...regionTypes, newType];
-    setRegionTypes(updatedTypes);
-    saveRegionTypes(updatedTypes);
-    
-    toast({
-      title: "Success",
-      description: "Region type added successfully",
-    });
+  const handleAddRegionType = async (name: string, color: string) => {
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to add region types",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('region_types')
+        .insert({
+          name,
+          color,
+          created_by: user.id
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Region type added successfully",
+      });
+
+      loadRegionTypes();
+    } catch (error) {
+      console.error('Error adding region type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add region type",
+        variant: "destructive",
+      });
+    }
   };
 
   // Handle updating custom region type
-  const handleUpdateRegionType = (id: string, updates: Partial<typeof regionTypes[0]>) => {
-    const updatedTypes = regionTypes.map(type => 
-      type.id === id ? { ...type, ...updates } : type
-    );
-    setRegionTypes(updatedTypes);
-    saveRegionTypes(updatedTypes);
-    
-    toast({
-      title: "Success",
-      description: "Region type updated successfully",
-    });
+  const handleUpdateRegionType = async (id: string, updates: Partial<RegionType>) => {
+    try {
+      const { error } = await supabase
+        .from('region_types')
+        .update(updates)
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Region type updated successfully",
+      });
+
+      loadRegionTypes();
+    } catch (error) {
+      console.error('Error updating region type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update region type",
+        variant: "destructive",
+      });
+    }
   };
 
   // Handle deleting custom region type
-  const handleDeleteRegionType = (id: string) => {
-    const updatedTypes = regionTypes.filter(type => type.id !== id);
-    setRegionTypes(updatedTypes);
-    saveRegionTypes(updatedTypes);
-    
-    toast({
-      title: "Success",
-      description: "Region type deleted successfully",
-    });
+  const handleDeleteRegionType = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('region_types')
+        .update({ is_active: false })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Region type deleted successfully",
+      });
+
+      loadRegionTypes();
+    } catch (error) {
+      console.error('Error deleting region type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete region type",
+        variant: "destructive",
+      });
+    }
   };
 
   // Handle toggling individual area visibility

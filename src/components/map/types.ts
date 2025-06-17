@@ -1,3 +1,4 @@
+
 // This file should be placed at src/components/map/types.ts
 
 // Database types (from Supabase schema)
@@ -107,12 +108,15 @@ export interface MapArea {
   is_visible?: boolean;
 }
 
-// Custom Region Type interface
+// Custom Region Type interface - now matches database schema
 export interface RegionType {
   id: string;
   name: string;
   color: string;
   is_active: boolean;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // UI types for components that need pixel coordinates
