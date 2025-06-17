@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
 import { MapArea, Map } from './types';
 
 interface MapAreasCanvasProps {
@@ -64,14 +65,14 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     canvas.height = containerRect.height;
 
     // Calculate initial scale to fit image
-    const scaleX = canvas.width / map.width;
-    const scaleY = canvas.height / map.height;
+    const scaleX = canvas.width / (map.width || 1);
+    const scaleY = canvas.height / (map.height || 1);
     const initialScale = Math.min(scaleX, scaleY, 1);
     
     setScale(initialScale);
     setOffset({
-      x: (canvas.width - map.width * initialScale) / 2,
-      y: (canvas.height - map.height * initialScale) / 2
+      x: (canvas.width - (map.width || 0) * initialScale) / 2,
+      y: (canvas.height - (map.height || 0) * initialScale) / 2
     });
   }, [map, imageLoaded]);
 
@@ -110,16 +111,16 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     ctx.scale(scale, scale);
 
     // Draw map image
-    ctx.drawImage(imageRef.current, 0, 0, map.width, map.height);
+    ctx.drawImage(imageRef.current, 0, 0, map.width || 0, map.height || 0);
     
     // Draw existing map areas
     mapAreas.forEach(area => {
       if (area.bounding_box) {
         const bbox = area.bounding_box as { x1: number; y1: number; x2: number; y2: number };
-        const x1 = bbox.x1 * map.width;
-        const y1 = bbox.y1 * map.height;
-        const x2 = bbox.x2 * map.width;
-        const y2 = bbox.y2 * map.height;
+        const x1 = bbox.x1 * (map.width || 0);
+        const y1 = bbox.y1 * (map.height || 0);
+        const x2 = bbox.x2 * (map.width || 0);
+        const y2 = bbox.y2 * (map.height || 0);
         
         const color = getAreaColor(area.area_type);
         
@@ -184,7 +185,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
       const mapX = (mouseX - offset.x) / scale;
       const mapY = (mouseY - offset.y) / scale;
 
-      if (mapX >= 0 && mapX <= map.width && mapY >= 0 && mapY <= map.height) {
+      if (mapX >= 0 && mapX <= (map.width || 0) && mapY >= 0 && mapY <= (map.height || 0)) {
         setIsDrawingArea(true);
         setStartPoint({ x: mapX, y: mapY });
         setCurrentRect({ x1: mapX, y1: mapY, x2: mapX, y2: mapY });
@@ -217,8 +218,8 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
       setCurrentRect({
         x1: startPoint.x,
         y1: startPoint.y,
-        x2: Math.max(0, Math.min(map.width, mapX)),
-        y2: Math.max(0, Math.min(map.height, mapY))
+        x2: Math.max(0, Math.min(map.width || 0, mapX)),
+        y2: Math.max(0, Math.min(map.height || 0, mapY))
       });
     }
   };

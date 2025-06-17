@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, Square } from 'lucide-react';
@@ -69,7 +68,15 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setMapAreas(data || []);
+      
+      // Transform the data to match our MapArea interface
+      const transformedData: MapArea[] = (data || []).map(area => ({
+        ...area,
+        terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features : [],
+        landmarks: Array.isArray(area.landmarks) ? area.landmarks : []
+      }));
+      
+      setMapAreas(transformedData);
     } catch (error) {
       console.error('Error loading map areas:', error);
       toast({
@@ -85,10 +92,10 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
 
     // Normalize coordinates
     const normalizedBoundingBox = {
-      x1: boundingBox.x1 / selectedMap.width,
-      y1: boundingBox.y1 / selectedMap.height,
-      x2: boundingBox.x2 / selectedMap.width,
-      y2: boundingBox.y2 / selectedMap.height
+      x1: boundingBox.x1 / selectedMap.width!,
+      y1: boundingBox.y1 / selectedMap.height!,
+      x2: boundingBox.x2 / selectedMap.width!,
+      y2: boundingBox.y2 / selectedMap.height!
     };
 
     try {
