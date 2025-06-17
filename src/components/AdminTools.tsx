@@ -112,8 +112,8 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         area_name: area.area_name,
         area_type: area.area_type,
         description: area.description,
-        terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features : [],
-        landmarks: Array.isArray(area.landmarks) ? area.landmarks : [],
+        terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features.map(item => String(item)) : [],
+        landmarks: Array.isArray(area.landmarks) ? area.landmarks.map(item => String(item)) : [],
         general_location: area.general_location,
         confidence_score: area.confidence_score
       }));
