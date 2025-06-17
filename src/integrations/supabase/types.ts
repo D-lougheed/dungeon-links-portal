@@ -64,6 +64,7 @@ export type Database = {
           id: string
           landmarks: Json | null
           map_id: string
+          polygon_coordinates: Json | null
           terrain_features: Json | null
           updated_at: string
         }
@@ -80,6 +81,7 @@ export type Database = {
           id?: string
           landmarks?: Json | null
           map_id: string
+          polygon_coordinates?: Json | null
           terrain_features?: Json | null
           updated_at?: string
         }
@@ -96,6 +98,7 @@ export type Database = {
           id?: string
           landmarks?: Json | null
           map_id?: string
+          polygon_coordinates?: Json | null
           terrain_features?: Json | null
           updated_at?: string
         }
