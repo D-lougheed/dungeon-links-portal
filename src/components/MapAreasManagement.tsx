@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, Square } from 'lucide-react';
@@ -116,6 +117,9 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
     if (!selectedMap || !user) return;
 
     try {
+      // Convert Point[] to Json-compatible format
+      const polygonJson = coordinates.map(point => ({ x: point.x, y: point.y }));
+
       const { error } = await supabase
         .from('map_areas')
         .insert({
@@ -123,7 +127,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
           area_name: areaName,
           area_type: areaType,
           description: description || null,
-          polygon_coordinates: coordinates,
+          polygon_coordinates: polygonJson as any, // Cast to any to satisfy Json type
           created_by: user.id
         });
 
@@ -147,9 +151,20 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
 
   const handleAreaUpdate = async (areaId: string, updates: Partial<MapArea>) => {
     try {
+      // Convert the updates to be compatible with Supabase types
+      const supabaseUpdates: any = { ...updates };
+      
+      // Convert polygon_coordinates if it exists
+      if (updates.polygon_coordinates) {
+        supabaseUpdates.polygon_coordinates = updates.polygon_coordinates.map(point => ({ 
+          x: point.x, 
+          y: point.y 
+        }));
+      }
+
       const { error } = await supabase
         .from('map_areas')
-        .update(updates)
+        .update(supabaseUpdates)
         .eq('id', areaId);
 
       if (error) throw error;
