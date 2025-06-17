@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, Square } from 'lucide-react';
@@ -72,11 +71,13 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
       
       // Transform the data to match our MapArea interface
       const transformedData: MapArea[] = (data || []).map(area => {
-        // Handle polygon_coordinates
+        // Handle polygon_coordinates by casting to any first to bypass TypeScript limitations
+        const areaWithPolygon = area as any;
         let polygonCoordinates: Point[] | null = null;
-        if (area.polygon_coordinates) {
-          if (Array.isArray(area.polygon_coordinates)) {
-            polygonCoordinates = area.polygon_coordinates.filter((point): point is Point => 
+        
+        if (areaWithPolygon.polygon_coordinates) {
+          if (Array.isArray(areaWithPolygon.polygon_coordinates)) {
+            polygonCoordinates = areaWithPolygon.polygon_coordinates.filter((point): point is Point => 
               point && typeof point === 'object' && 
               typeof point.x === 'number' && typeof point.y === 'number'
             );
