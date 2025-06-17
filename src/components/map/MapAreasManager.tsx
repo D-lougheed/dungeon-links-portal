@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Trash2, Edit, Polygon } from 'lucide-react';
+import { Trash2, Edit, Square } from 'lucide-react';
 import { MapArea } from './types';
 
 interface MapAreasManagerProps {
@@ -140,7 +140,7 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
                             {area.area_type}
                           </Badge>
                           <Badge variant="outline" className="text-xs">
-                            <Polygon className="h-3 w-3 mr-1" />
+                            <Square className="h-3 w-3 mr-1" />
                             {getAreaShape(area)}
                           </Badge>
                         </div>

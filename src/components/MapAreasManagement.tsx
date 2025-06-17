@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, Square } from 'lucide-react';
@@ -70,26 +71,34 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
       if (error) throw error;
       
       // Transform the data to match our MapArea interface
-      const transformedData: MapArea[] = (data || []).map(area => ({
-        ...area,
-        terrain_features: Array.isArray(area.terrain_features) 
-          ? area.terrain_features.filter((item): item is string => typeof item === 'string')
-          : [],
-        landmarks: Array.isArray(area.landmarks) 
-          ? area.landmarks.filter((item): item is string => typeof item === 'string')
-          : [],
-        bounding_box: area.bounding_box && typeof area.bounding_box === 'object' && 
-          'x1' in area.bounding_box && 'y1' in area.bounding_box && 
-          'x2' in area.bounding_box && 'y2' in area.bounding_box
-          ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
-          : null,
-        polygon_coordinates: Array.isArray(area.polygon_coordinates)
-          ? area.polygon_coordinates.filter((point): point is Point => 
+      const transformedData: MapArea[] = (data || []).map(area => {
+        // Handle polygon_coordinates
+        let polygonCoordinates: Point[] | null = null;
+        if (area.polygon_coordinates) {
+          if (Array.isArray(area.polygon_coordinates)) {
+            polygonCoordinates = area.polygon_coordinates.filter((point): point is Point => 
               point && typeof point === 'object' && 
               typeof point.x === 'number' && typeof point.y === 'number'
-            )
-          : null
-      }));
+            );
+          }
+        }
+
+        return {
+          ...area,
+          terrain_features: Array.isArray(area.terrain_features) 
+            ? area.terrain_features.filter((item): item is string => typeof item === 'string')
+            : [],
+          landmarks: Array.isArray(area.landmarks) 
+            ? area.landmarks.filter((item): item is string => typeof item === 'string')
+            : [],
+          bounding_box: area.bounding_box && typeof area.bounding_box === 'object' && 
+            'x1' in area.bounding_box && 'y1' in area.bounding_box && 
+            'x2' in area.bounding_box && 'y2' in area.bounding_box
+            ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
+            : null,
+          polygon_coordinates: polygonCoordinates
+        };
+      });
       
       setMapAreas(transformedData);
     } catch (error) {
