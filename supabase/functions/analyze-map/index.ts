@@ -75,7 +75,9 @@ serve(async (req) => {
             content: [
               {
                 type: "text",
-                text: `You are analyzing a fantasy map image. Please identify and categorize different areas, landmarks, and terrain features. 
+                text: `You are analyzing a fantasy map image. Please identify and categorize different areas, landmarks, and terrain features with their approximate locations on the map.
+
+For each area you identify, you MUST provide normalized bounding box coordinates (0.0 to 1.0) that represent where that area is located on the image.
 
 Return your analysis as a JSON array where each object represents a distinct area or feature with this structure:
 {
@@ -85,17 +87,31 @@ Return your analysis as a JSON array where each object represents a distinct are
   "terrain_features": ["forest", "mountains", "river"], // array of terrain types present
   "landmarks": ["castle", "bridge", "tower"], // array of notable landmarks
   "general_location": "northwest|northeast|center|southwest|southeast|north|south|east|west",
+  "bounding_box": {
+    "x1": 0.1, // left edge (0.0 = far left, 1.0 = far right)
+    "y1": 0.2, // top edge (0.0 = top, 1.0 = bottom)
+    "x2": 0.4, // right edge
+    "y2": 0.6  // bottom edge
+  },
   "confidence_score": 0.85 // confidence level from 0.0 to 1.0
 }
 
+IMPORTANT: For the bounding_box coordinates:
+- x1, y1 = top-left corner of the area (normalized 0.0-1.0)
+- x2, y2 = bottom-right corner of the area (normalized 0.0-1.0)
+- x values: 0.0 = leftmost edge, 1.0 = rightmost edge
+- y values: 0.0 = topmost edge, 1.0 = bottommost edge
+- Make sure x2 > x1 and y2 > y1
+- Estimate the boundaries as accurately as possible based on the visual features
+
 Focus on identifying:
-1. Major terrain types (forests, mountains, deserts, water bodies)
-2. Settlements and cities
-3. Notable landmarks (castles, towers, bridges)
-4. Geographic regions
+1. Major terrain types (forests, mountains, deserts, water bodies) with their approximate boundaries
+2. Settlements and cities with their location
+3. Notable landmarks (castles, towers, bridges) with their position
+4. Geographic regions with clear boundaries
 5. Political or named areas if visible
 
-Provide between 5-15 distinct areas depending on map complexity. Make sure each area has a unique name and clear boundaries.`
+Provide between 5-15 distinct areas depending on map complexity. Make sure each area has a unique name, clear boundaries, and accurate bounding box coordinates.`
               },
               {
                 type: "image_url",
@@ -106,7 +122,7 @@ Provide between 5-15 distinct areas depending on map complexity. Make sure each 
             ]
           }
         ],
-        max_tokens: 2000
+        max_tokens: 3000
       })
     });
 
@@ -139,22 +155,42 @@ Provide between 5-15 distinct areas depending on map complexity. Make sure each 
 
     console.log(`📊 Parsed ${analysisResults.length} areas from analysis`);
 
-    // Store the analysis results in the database
-    const areasToInsert = analysisResults.map((area: any) => ({
-      map_id: mapId,
-      area_name: area.area_name || 'Unknown Area',
-      area_type: area.area_type || 'other',
-      description: area.description,
-      terrain_features: area.terrain_features || [],
-      landmarks: area.landmarks || [],
-      general_location: area.general_location,
-      confidence_score: area.confidence_score || 0.5,
-      analysis_metadata: {
-        analyzed_at: new Date().toISOString(),
-        model_used: 'gpt-4o',
-        original_analysis: area
+    // Validate and store the analysis results in the database
+    const areasToInsert = analysisResults.map((area: any) => {
+      // Validate bounding box if provided
+      let boundingBox = null;
+      if (area.bounding_box && typeof area.bounding_box === 'object') {
+        const bbox = area.bounding_box;
+        // Ensure all coordinates are present and valid
+        if (typeof bbox.x1 === 'number' && typeof bbox.y1 === 'number' && 
+            typeof bbox.x2 === 'number' && typeof bbox.y2 === 'number' &&
+            bbox.x1 >= 0 && bbox.x1 <= 1 && bbox.y1 >= 0 && bbox.y1 <= 1 &&
+            bbox.x2 >= 0 && bbox.x2 <= 1 && bbox.y2 >= 0 && bbox.y2 <= 1 &&
+            bbox.x2 > bbox.x1 && bbox.y2 > bbox.y1) {
+          boundingBox = bbox;
+        } else {
+          console.warn(`⚠️ Invalid bounding box for area "${area.area_name}":`, bbox);
+        }
       }
-    }));
+
+      return {
+        map_id: mapId,
+        area_name: area.area_name || 'Unknown Area',
+        area_type: area.area_type || 'other',
+        description: area.description,
+        terrain_features: area.terrain_features || [],
+        landmarks: area.landmarks || [],
+        general_location: area.general_location,
+        bounding_box: boundingBox,
+        confidence_score: area.confidence_score || 0.5,
+        analysis_metadata: {
+          analyzed_at: new Date().toISOString(),
+          model_used: 'gpt-4o',
+          original_analysis: area,
+          has_coordinates: boundingBox !== null
+        }
+      };
+    });
 
     const { data: insertedAreas, error: insertError } = await supabase
       .from('map_areas')
@@ -168,14 +204,18 @@ Provide between 5-15 distinct areas depending on map complexity. Make sure each 
 
     console.log(`✅ Successfully stored ${insertedAreas.length} map areas`);
 
+    // Count how many areas have bounding boxes
+    const areasWithCoordinates = insertedAreas.filter(area => area.bounding_box !== null).length;
+
     return new Response(
       JSON.stringify({
         success: true,
         map_id: mapId,
         map_name: map.name,
         areas_analyzed: insertedAreas.length,
+        areas_with_coordinates: areasWithCoordinates,
         areas: insertedAreas,
-        message: `Successfully analyzed map "${map.name}" and identified ${insertedAreas.length} distinct areas`
+        message: `Successfully analyzed map "${map.name}" and identified ${insertedAreas.length} distinct areas (${areasWithCoordinates} with coordinates)`
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

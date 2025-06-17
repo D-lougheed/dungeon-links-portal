@@ -53,6 +53,12 @@ interface MapArea {
   landmarks: string[];
   general_location?: string;
   confidence_score?: number;
+  bounding_box?: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null;
 }
 
 const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
@@ -115,7 +121,8 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
         terrain_features: Array.isArray(area.terrain_features) ? area.terrain_features.map(item => String(item)) : [],
         landmarks: Array.isArray(area.landmarks) ? area.landmarks.map(item => String(item)) : [],
         general_location: area.general_location,
-        confidence_score: area.confidence_score
+        confidence_score: area.confidence_score,
+        bounding_box: area.bounding_box
       }));
       
       setMapAreas(transformedAreas);
@@ -656,7 +663,7 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
               Map Image Analysis
             </CardTitle>
             <CardDescription>
-              Analyze map images using AI to identify terrain features, landmarks, and regions automatically.
+              Analyze map images using AI to identify terrain features, landmarks, and regions with their coordinates automatically.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -702,15 +709,27 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
               {/* Map Analysis Results */}
               {selectedMapId && mapAreas.length > 0 && (
                 <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
-                  <h4 className="font-medium text-green-900 mb-3">Analysis Results ({mapAreas.length} areas identified)</h4>
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-medium text-green-900">Analysis Results ({mapAreas.length} areas identified)</h4>
+                    <div className="text-sm text-green-700">
+                      {mapAreas.filter(area => area.bounding_box).length} areas have coordinates
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto">
                     {mapAreas.map((area) => (
                       <div key={area.id} className="bg-white border border-green-200 p-3 rounded-lg">
                         <div className="flex justify-between items-start mb-2">
                           <h5 className="font-semibold text-green-900">{area.area_name}</h5>
-                          <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                            {area.area_type}
-                          </span>
+                          <div className="flex gap-1">
+                            <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                              {area.area_type}
+                            </span>
+                            {area.bounding_box && (
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                📍 Mapped
+                              </span>
+                            )}
+                          </div>
                         </div>
                         {area.description && (
                           <p className="text-sm text-green-700 mb-2">{area.description}</p>
@@ -718,6 +737,11 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                         {area.general_location && (
                           <p className="text-xs text-green-600 mb-1">
                             <strong>Location:</strong> {area.general_location}
+                          </p>
+                        )}
+                        {area.bounding_box && (
+                          <p className="text-xs text-blue-600 mb-1">
+                            <strong>Coordinates:</strong> ({area.bounding_box.x1.toFixed(3)}, {area.bounding_box.y1.toFixed(3)}) to ({area.bounding_box.x2.toFixed(3)}, {area.bounding_box.y2.toFixed(3)})
                           </p>
                         )}
                         {area.terrain_features.length > 0 && (
@@ -745,9 +769,10 @@ const AdminTools: React.FC<AdminToolsProps> = ({ onBack }) => {
                 <h4 className="font-medium text-blue-900 mb-1">💡 How It Works</h4>
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• <strong>AI Vision Analysis:</strong> Uses GPT-4 Vision to analyze map images</li>
+                  <li>• <strong>Coordinate Detection:</strong> AI identifies bounding box coordinates for each area</li>
                   <li>• <strong>Automatic Detection:</strong> Identifies terrain, landmarks, regions, and settlements</li>
-                  <li>• <strong>Structured Results:</strong> Stores analysis in database for future reference</li>
-                  <li>• <strong>Location Mapping:</strong> Provides general location information for each area</li>
+                  <li>• <strong>Structured Results:</strong> Stores analysis with coordinates in database</li>
+                  <li>• <strong>Location Mapping:</strong> Provides both general location and precise coordinates</li>
                   <li>• <strong>Confidence Scoring:</strong> AI provides confidence levels for each identification</li>
                 </ul>
               </div>
