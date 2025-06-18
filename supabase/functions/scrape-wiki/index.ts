@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { incremental = false, getMissing = false, streaming = false, maxFiles = 50 } = await req.json()
+    const { incremental = false, getMissing = false, streaming = false, maxFiles = 25 } = await req.json()
     
     // Get configuration from environment variables
     const googleApiKey = Deno.env.get('GDrive_APIKey')
@@ -46,22 +46,22 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured')
     }
 
-    // Enhanced rate limiting with more conservative settings for missing files scan
-    let requestDelay = getMissing ? 1500 : 800 // Longer delay for missing files
-    const maxDelay = getMissing ? 30000 : 15000 // Longer max delay for missing files
-    const delayMultiplier = 2.0 // More aggressive backoff
+    // Much more conservative rate limiting settings
+    let requestDelay = getMissing ? 3000 : 2000 // Start with longer delays
+    const maxDelay = getMissing ? 60000 : 30000 // Much longer max delays
+    const delayMultiplier = 3.0 // More aggressive backoff
     let consecutiveErrors = 0
     let successfulRequests = 0
     let totalRequestsMade = 0
-    const maxTotalRequests = getMissing ? 200 : 500 // Limit total requests to prevent timeouts
+    const maxTotalRequests = getMissing ? 100 : 200 // Much lower request limits
 
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-    // Function to make API calls with improved retry logic and timeout protection
-    const makeApiCall = async (url: string, retries = 2): Promise<Response> => {
+    // Function to make API calls with much more conservative retry logic
+    const makeApiCall = async (url: string, retries = 3): Promise<Response> => {
       // Check if we've made too many requests
       if (totalRequestsMade >= maxTotalRequests) {
-        throw new Error(`Request limit reached (${maxTotalRequests}) to prevent timeout`)
+        throw new Error(`Request limit reached (${maxTotalRequests}) to prevent timeout and rate limiting`)
       }
 
       for (let attempt = 1; attempt <= retries; attempt++) {
@@ -69,25 +69,27 @@ serve(async (req) => {
           totalRequestsMade++
           console.log(`🌐 API Call ${totalRequestsMade}/${maxTotalRequests} attempt ${attempt}/${retries}`)
           
-          // Add random jitter to prevent synchronized requests
-          const jitter = Math.random() * 500
-          await sleep(requestDelay + jitter)
+          // Much longer base delay with larger jitter
+          const jitter = Math.random() * 2000
+          const waitTime = requestDelay + jitter
+          console.log(`⏰ Waiting ${waitTime}ms before API call...`)
+          await sleep(waitTime)
           
           const response = await fetch(url)
           
           if (response.status === 403) {
             const errorText = await response.text()
-            if (errorText.includes('automated queries') || errorText.includes('rate limit')) {
-              console.log(`⚠️  Rate limit detected on attempt ${attempt}, increasing delay...`)
+            if (errorText.includes('automated queries') || errorText.includes('rate limit') || errorText.includes('quota')) {
+              console.log(`⚠️  Rate limit/quota detected on attempt ${attempt}, implementing aggressive backoff...`)
               consecutiveErrors++
               
-              // More aggressive exponential backoff for missing files
-              const backoffDelay = Math.min(requestDelay * Math.pow(delayMultiplier, attempt), maxDelay)
+              // Much more aggressive exponential backoff
+              const backoffDelay = Math.min(requestDelay * Math.pow(delayMultiplier, attempt + consecutiveErrors), maxDelay)
               requestDelay = Math.min(backoffDelay, maxDelay)
               
               if (attempt < retries) {
-                const waitTime = backoffDelay * (attempt + 2) + Math.random() * 3000
-                console.log(`⏰ Waiting ${waitTime}ms before retry...`)
+                const waitTime = backoffDelay * (attempt + 3) + Math.random() * 10000
+                console.log(`⏰ Rate limited! Waiting ${waitTime}ms before retry...`)
                 await sleep(waitTime)
                 continue
               }
@@ -99,15 +101,15 @@ serve(async (req) => {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`)
           }
           
-          // Success - gradually reduce delay but keep it reasonable
+          // Success - very gradually reduce delay but keep it high
           consecutiveErrors = 0
           successfulRequests++
           
-          // Only reduce delay after several successful requests and keep minimum higher for missing files
-          const minDelay = getMissing ? 1200 : 800
-          if (successfulRequests > 5 && requestDelay > minDelay) {
-            requestDelay = Math.max(minDelay, requestDelay * 0.95)
-            console.log(`✅ Success streak! Reducing delay to ${requestDelay}ms`)
+          // Only reduce delay after many successful requests and keep minimum very high
+          const minDelay = getMissing ? 2500 : 1800
+          if (successfulRequests > 10 && requestDelay > minDelay) {
+            requestDelay = Math.max(minDelay, requestDelay * 0.98)
+            console.log(`✅ Success streak! Slightly reducing delay to ${requestDelay}ms`)
             successfulRequests = 0 // Reset counter
           }
           
@@ -117,8 +119,9 @@ serve(async (req) => {
           if (attempt === retries) {
             throw error
           }
-          // Progressive delay between retries with jitter
-          const retryDelay = 5000 * attempt + Math.random() * 3000
+          // Much longer progressive delay between retries with large jitter
+          const retryDelay = 10000 * attempt + Math.random() * 10000
+          console.log(`⏰ Retrying in ${retryDelay}ms...`)
           await sleep(retryDelay)
         }
       }
@@ -159,7 +162,7 @@ serve(async (req) => {
       
       try {
         // Enhanced API call with fields for modification time
-        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime)&pageSize=100`
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime)&pageSize=50`
         
         const response = await makeApiCall(url)
         const data = await response.json()
@@ -176,8 +179,9 @@ serve(async (req) => {
           const currentPath = path ? `${path}/${file.name}` : file.name
           
           if (file.mimeType === 'application/vnd.google-apps.folder') {
-            // Recursively get files from subfolders
+            // Recursively get files from subfolders with delay
             console.log(`📂 Entering subfolder: ${file.name}`)
+            await sleep(1000) // Extra delay before subfolder scanning
             const subfolderFiles = await getAllMarkdownFiles(file.id, currentPath)
             allFiles.push(...subfolderFiles)
           } else if (file.name.endsWith('.md')) {
@@ -242,10 +246,14 @@ serve(async (req) => {
       return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
     }
 
-    // Function to generate embeddings using OpenAI
+    // Function to generate embeddings using OpenAI with retry logic
     const generateEmbedding = async (text: string) => {
       try {
         console.log(`🤖 GENERATING EMBEDDING: ${text.length} characters`)
+        
+        // Add delay before OpenAI calls to prevent rate limiting
+        await sleep(500)
+        
         const response = await fetch('https://api.openai.com/v1/embeddings', {
           method: 'POST',
           headers: {
@@ -296,7 +304,7 @@ serve(async (req) => {
     console.log(`\n🌐 STARTING GOOGLE DRIVE DISCOVERY`)
     const markdownFiles = await getAllMarkdownFiles(folderId)
     
-    // Limit files to process to prevent timeouts
+    // Much smaller batch sizes to prevent timeouts and rate limiting
     const filesToProcess = markdownFiles.slice(0, maxFiles)
     const missingFiles = getMissing ? filesToProcess.length : 0
     
@@ -330,7 +338,7 @@ serve(async (req) => {
       )
     }
 
-    // Process discovered files
+    // Process discovered files with much more conservative approach
     let pagesScraped = 0
     let pagesSkipped = 0
     let rateLimitErrors = 0
@@ -340,10 +348,9 @@ serve(async (req) => {
     for (const file of filesToProcess) {
       console.log(`\n📄 PROCESSING ${pagesScraped + pagesSkipped + 1}/${filesToProcess.length}: ${file.path}`)
       
-      // Check if we're approaching timeout (leave some buffer time)
-      const timeElapsed = Date.now() - Date.now()
-      if (totalRequestsMade >= maxTotalRequests) {
-        console.log(`⏰ Stopping processing to prevent timeout (${totalRequestsMade} requests made)`)
+      // Check if we're approaching limits (more conservative)
+      if (totalRequestsMade >= maxTotalRequests * 0.8) {
+        console.log(`⏰ Stopping processing early to prevent rate limiting (${totalRequestsMade} requests made)`)
         break
       }
       
@@ -388,7 +395,7 @@ serve(async (req) => {
           }
         }
 
-        // Generate embedding
+        // Generate embedding with delay
         const embedding = await generateEmbedding(cleanedContent)
         if (!embedding) {
           console.log(`❌ EMBEDDING FAILED`)
@@ -422,12 +429,19 @@ serve(async (req) => {
         processedFiles.push(file.path)
         console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars)`)
         
-        // Brief pause between successful operations
-        await sleep(200)
+        // Longer pause between successful operations
+        await sleep(1000)
       } catch (error) {
         console.error(`💥 Error processing ${file.name}:`, error)
         pagesSkipped++
         errors.push(`Processing error for ${file.name}: ${error.message}`)
+        
+        // If we hit rate limits, add extra delay
+        if (error.message.includes('403') || error.message.includes('rate limit')) {
+          rateLimitErrors++
+          console.log(`⏰ Rate limit detected, adding extra delay...`)
+          await sleep(15000) // 15 second delay on rate limit
+        }
       }
     }
 
