@@ -128,33 +128,51 @@ serve(async (req) => {
       throw new Error('All retry attempts failed')
     }
 
-    // Get existing files from database if we're doing a missing files scan
-    let existingFiles: Set<string> = new Set()
-    if (getMissing) {
-      console.log('🔍 Loading existing files from database...')
-      const { data: existing, error } = await supabase
-        .from('wiki_content')
-        .select('url')
-      
-      if (error) {
-        console.error('Error loading existing files:', error)
-        throw error
+    // Get existing files from database with detailed information
+    let existingFiles: Map<string, { url: string, hash: string, updatedAt: string }> = new Map()
+    let totalExistingFiles = 0
+    
+    console.log('🔍 Loading existing files from database...')
+    const { data: existing, error: existingError } = await supabase
+      .from('wiki_content')
+      .select('url, content_hash, updated_at')
+    
+    if (existingError) {
+      console.error('Error loading existing files:', existingError)
+      throw existingError
+    }
+    
+    totalExistingFiles = existing?.length || 0
+    
+    for (const item of existing || []) {
+      // Extract file ID from various URL formats
+      let fileId = ''
+      if (item.url.startsWith('gdrive://')) {
+        fileId = item.url.replace('gdrive://', '')
+      } else {
+        const match = item.url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/)
+        fileId = match ? match[1] : item.url
       }
       
-      existingFiles = new Set(existing?.map(item => {
-        // Extract file ID from various URL formats
-        if (item.url.startsWith('gdrive://')) {
-          return item.url.replace('gdrive://', '')
-        }
-        const match = item.url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/)
-        return match ? match[1] : item.url
-      }) || [])
-      
-      console.log(`📋 Found ${existingFiles.size} existing files in database`)
+      existingFiles.set(fileId, {
+        url: item.url,
+        hash: item.content_hash || '',
+        updatedAt: item.updated_at || ''
+      })
     }
+    
+    console.log(`📋 Found ${totalExistingFiles} existing files in database`)
 
     // Get cutoff time for incremental scraping (last 7 days)
     const incrementalCutoff = incremental ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() : null
+
+    // Enhanced tracking variables
+    let totalDiscoveredFiles = 0
+    let filesToProcessCount = 0
+    let unchangedFilesCount = 0
+    let newFilesCount = 0
+    let updatedFilesCount = 0
+    let missingFilesCount = 0
 
     // Function to recursively get all files from a Google Drive folder
     const getAllMarkdownFiles = async (folderId: string, path: string = '') => {
@@ -162,7 +180,7 @@ serve(async (req) => {
       
       try {
         // Enhanced API call with fields for modification time
-        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime)&pageSize=50`
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents`)}&key=${googleApiKey}&fields=files(id,name,mimeType,parents,webViewLink,modifiedTime,size)&pageSize=50`
         
         const response = await makeApiCall(url)
         const data = await response.json()
@@ -185,28 +203,65 @@ serve(async (req) => {
             const subfolderFiles = await getAllMarkdownFiles(file.id, currentPath)
             allFiles.push(...subfolderFiles)
           } else if (file.name.endsWith('.md')) {
-            // For missing files scan, check if file already exists
-            if (getMissing && existingFiles.has(file.id)) {
-              console.log(`⏭️  Skipping existing file: ${currentPath}`)
-              continue
-            }
+            totalDiscoveredFiles++
             
-            // Check if file should be included in incremental scan
-            if (incremental && incrementalCutoff && file.modifiedTime) {
-              if (file.modifiedTime < incrementalCutoff) {
-                console.log(`⏭️  Skipping old file: ${currentPath} (modified: ${file.modifiedTime})`)
-                continue
+            const existingFile = existingFiles.get(file.id)
+            const isExisting = !!existingFile
+            
+            // Determine file status
+            let fileStatus = 'new'
+            let shouldProcess = true
+            
+            if (isExisting) {
+              // Check if file should be included in incremental scan
+              if (incremental && incrementalCutoff && file.modifiedTime) {
+                if (file.modifiedTime < incrementalCutoff) {
+                  fileStatus = 'unchanged_old'
+                  shouldProcess = false
+                  unchangedFilesCount++
+                } else {
+                  fileStatus = 'potentially_updated'
+                  updatedFilesCount++
+                }
+              } else if (getMissing) {
+                fileStatus = 'existing_skip'
+                shouldProcess = false
+                unchangedFilesCount++
+              } else {
+                fileStatus = 'existing_check'
+                // We'll check hash later to determine if it needs updating
+              }
+            } else {
+              fileStatus = 'new'
+              newFilesCount++
+              if (getMissing) {
+                missingFilesCount++
               }
             }
             
-            const scanType = getMissing ? '(missing)' : (incremental ? `(modified: ${file.modifiedTime})` : '')
-            console.log(`📄 Found markdown file: ${currentPath} ${scanType}`)
+            if (!shouldProcess) {
+              const statusText = fileStatus === 'unchanged_old' ? '(too old for incremental)' : 
+                               fileStatus === 'existing_skip' ? '(already exists)' : '(skipping)'
+              console.log(`⏭️  Skipping: ${currentPath} ${statusText}`)
+              continue
+            }
+            
+            filesToProcessCount++
+            
+            const statusText = fileStatus === 'new' ? '(NEW)' : 
+                              fileStatus === 'potentially_updated' ? `(UPDATED: ${file.modifiedTime})` : 
+                              fileStatus === 'existing_check' ? '(checking for changes)' : ''
+            console.log(`📄 Found markdown file: ${currentPath} ${statusText}`)
+            
             allFiles.push({
               id: file.id,
               name: file.name,
               path: currentPath,
               webViewLink: file.webViewLink,
-              modifiedTime: file.modifiedTime
+              modifiedTime: file.modifiedTime,
+              size: file.size || 0,
+              status: fileStatus,
+              existing: existingFile
             })
           } else {
             console.log(`📄 Skipping non-markdown file: ${currentPath}`)
@@ -306,30 +361,72 @@ serve(async (req) => {
     
     // Much smaller batch sizes to prevent timeouts and rate limiting
     const filesToProcess = markdownFiles.slice(0, maxFiles)
-    const missingFiles = getMissing ? filesToProcess.length : 0
     
     console.log(`\n📊 DISCOVERY SUMMARY:`)
     console.log(`   - Mode: ${mode}`)
-    console.log(`   - Total .md files discovered: ${markdownFiles.length}`)
+    console.log(`   - Total .md files in Google Drive: ${totalDiscoveredFiles}`)
+    console.log(`   - Files already in database: ${totalExistingFiles}`)
+    console.log(`   - New files discovered: ${newFilesCount}`)
     console.log(`   - Files to process this run: ${filesToProcess.length}`)
+    console.log(`   - Files that will be skipped (unchanged): ${unchangedFilesCount}`)
+    
     if (getMissing) {
-      console.log(`   - Missing files to process: ${missingFiles}`)
+      console.log(`   - Missing files found: ${missingFilesCount}`)
     }
-    if (markdownFiles.length > maxFiles) {
-      console.log(`   - Remaining files for next run: ${markdownFiles.length - maxFiles}`)
+    if (incremental) {
+      console.log(`   - Recently updated files: ${updatedFilesCount}`)
+    }
+    if (totalDiscoveredFiles > maxFiles) {
+      console.log(`   - Remaining files for next run: ${totalDiscoveredFiles - maxFiles}`)
     }
 
     if (filesToProcess.length === 0) {
-      const message = getMissing ? 'No missing files found - all files are up to date!' : 'No markdown files found in the specified folder or timeframe.'
+      const message = getMissing ? 'No missing files found - all files are up to date!' : 
+                     incremental ? 'No recently changed files found.' :
+                     'No markdown files found in the specified folder.'
+      
       return new Response(
         JSON.stringify({ 
           success: true, 
           pagesScraped: 0,
-          pagesSkipped: 0,
-          totalDiscovered: markdownFiles.length,
-          missingFiles: 0,
+          pagesSkipped: unchangedFilesCount,
+          totalDiscovered: totalDiscoveredFiles,
+          totalInDatabase: totalExistingFiles,
+          newFiles: newFilesCount,
+          missingFiles: getMissing ? missingFilesCount : undefined,
+          unchangedFiles: unchangedFilesCount,
+          updatedFiles: updatedFilesCount,
+          filesProcessedThisRun: 0,
+          filesRemainingForNextRun: Math.max(0, totalDiscoveredFiles - maxFiles),
           incremental,
           getMissing,
+          mode,
+          progressPercentage: 100,
+          apiRequestsMade: totalRequestsMade,
+          maxApiRequests: maxTotalRequests,
+          rateLimitErrors: 0,
+          statistics: {
+            discovery: {
+              totalInGoogleDrive: totalDiscoveredFiles,
+              totalInDatabase: totalExistingFiles,
+              newFilesFound: newFilesCount,
+              missingFilesFound: getMissing ? missingFilesCount : undefined,
+              unchangedFilesSkipped: unchangedFilesCount
+            },
+            processing: {
+              filesAttempted: 0,
+              filesSuccessful: 0,
+              filesFailed: 0,
+              actuallyNew: 0,
+              actuallyUpdated: 0,
+              actuallyUnchanged: unchangedFilesCount
+            },
+            completion: {
+              progressPercentage: 100,
+              filesRemaining: Math.max(0, totalDiscoveredFiles - maxFiles),
+              isComplete: totalDiscoveredFiles <= maxFiles
+            }
+          },
           message 
         }),
         { 
@@ -342,6 +439,9 @@ serve(async (req) => {
     let pagesScraped = 0
     let pagesSkipped = 0
     let rateLimitErrors = 0
+    let actuallyNewFiles = 0
+    let actuallyUpdatedFiles = 0
+    let actuallyUnchangedFiles = 0
     const processedFiles = []
     const errors = []
 
@@ -381,18 +481,18 @@ serve(async (req) => {
         const contentHash = await generateHash(content)
         
         // Check if content exists and is unchanged (unless we're specifically looking for missing files)
-        if (!getMissing) {
-          const { data: existing } = await supabase
-            .from('wiki_content')
-            .select('id, content_hash')
-            .eq('url', file.webViewLink || `gdrive://${file.id}`)
-            .single()
-
-          if (existing && existing.content_hash === contentHash) {
-            console.log(`⏭️  UNCHANGED: Content identical`)
+        if (!getMissing && file.existing) {
+          if (file.existing.hash === contentHash) {
+            console.log(`⏭️  UNCHANGED: Content identical (hash match)`)
             pagesSkipped++
+            actuallyUnchangedFiles++
             continue
+          } else {
+            console.log(`🔄 CHANGED: Content hash differs, updating...`)
+            actuallyUpdatedFiles++
           }
+        } else if (!file.existing) {
+          actuallyNewFiles++
         }
 
         // Generate embedding with delay
@@ -426,8 +526,13 @@ serve(async (req) => {
         }
 
         pagesScraped++
-        processedFiles.push(file.path)
-        console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars)`)
+        processedFiles.push({
+          path: file.path,
+          title: title,
+          size: cleanedContent.length,
+          status: file.existing ? 'updated' : 'new'
+        })
+        console.log(`✅ SAVED: ${title} (${cleanedContent.length} chars) - ${file.existing ? 'UPDATED' : 'NEW'}`)
         
         // Longer pause between successful operations
         await sleep(1000)
@@ -445,25 +550,37 @@ serve(async (req) => {
       }
     }
 
+    // Calculate final statistics
+    const totalProcessedThisRun = pagesScraped + pagesSkipped
+    const filesRemainingForNextRun = Math.max(0, totalDiscoveredFiles - totalProcessedThisRun)
+    const progressPercentage = totalDiscoveredFiles > 0 ? Math.round((totalProcessedThisRun / totalDiscoveredFiles) * 100) : 100
+
     console.log(`\n🏁 GOOGLE DRIVE SCRAPING COMPLETE!`)
     console.log(`   📊 FINAL STATISTICS:`)
     console.log(`   - Mode: ${mode}`)
-    console.log(`   - Files discovered: ${markdownFiles.length}`)
-    console.log(`   - Files processed this run: ${filesToProcess.length}`)
+    console.log(`   - Total files in Google Drive: ${totalDiscoveredFiles}`)
+    console.log(`   - Files in database before: ${totalExistingFiles}`)
+    console.log(`   - Files processed this run: ${totalProcessedThisRun}`)
     console.log(`   - Files successfully scraped: ${pagesScraped}`)
     console.log(`   - Files skipped: ${pagesSkipped}`)
+    console.log(`   - Actually new files: ${actuallyNewFiles}`)
+    console.log(`   - Actually updated files: ${actuallyUpdatedFiles}`)
+    console.log(`   - Actually unchanged files: ${actuallyUnchangedFiles}`)
     console.log(`   - Rate limit errors: ${rateLimitErrors}`)
     console.log(`   - Total API requests made: ${totalRequestsMade}`)
+    console.log(`   - Files remaining for next run: ${filesRemainingForNextRun}`)
+    console.log(`   - Progress: ${progressPercentage}%`)
+    
     if (getMissing) {
-      console.log(`   - Missing files found: ${missingFiles}`)
+      console.log(`   - Missing files found: ${missingFilesCount}`)
     }
 
     let message = getMissing 
-      ? `Missing files scan complete: Found ${missingFiles} missing files, processed ${pagesScraped} successfully`
-      : `Google Drive scraping complete: Found ${markdownFiles.length} .md files, scraped ${pagesScraped} files${incremental ? ' (incremental mode)' : ''}`
+      ? `Missing files scan complete: Found ${missingFilesCount} missing files, processed ${pagesScraped} successfully`
+      : `Google Drive scraping complete: Found ${totalDiscoveredFiles} .md files, scraped ${pagesScraped} files${incremental ? ' (incremental mode)' : ''}`
 
-    if (markdownFiles.length > maxFiles) {
-      message += ` (${markdownFiles.length - maxFiles} files remaining for next run)`
+    if (filesRemainingForNextRun > 0) {
+      message += ` (${filesRemainingForNextRun} files remaining for next run)`
     }
 
     return new Response(
@@ -471,14 +588,45 @@ serve(async (req) => {
         success: true, 
         pagesScraped,
         pagesSkipped,
-        totalDiscovered: markdownFiles.length,
-        filesProcessedThisRun: filesToProcess.length,
-        missingFiles: getMissing ? missingFiles : undefined,
+        totalDiscovered: totalDiscoveredFiles,
+        totalInDatabase: totalExistingFiles,
+        newFiles: actuallyNewFiles,
+        updatedFiles: actuallyUpdatedFiles,
+        unchangedFiles: actuallyUnchangedFiles,
+        filesProcessedThisRun: totalProcessedThisRun,
+        filesRemainingForNextRun,
+        progressPercentage,
+        missingFiles: getMissing ? missingFilesCount : undefined,
         rateLimitErrors,
         incremental,
         getMissing,
+        mode,
         processedFiles: processedFiles.slice(0, 50),
         errors: errors.slice(0, 10), // Include first 10 errors for debugging
+        apiRequestsMade: totalRequestsMade,
+        maxApiRequests: maxTotalRequests,
+        statistics: {
+          discovery: {
+            totalInGoogleDrive: totalDiscoveredFiles,
+            totalInDatabase: totalExistingFiles,
+            newFilesFound: newFilesCount,
+            missingFilesFound: getMissing ? missingFilesCount : undefined,
+            unchangedFilesSkipped: unchangedFilesCount
+          },
+          processing: {
+            filesAttempted: totalProcessedThisRun,
+            filesSuccessful: pagesScraped,
+            filesFailed: pagesSkipped,
+            actuallyNew: actuallyNewFiles,
+            actuallyUpdated: actuallyUpdatedFiles,
+            actuallyUnchanged: actuallyUnchangedFiles
+          },
+          completion: {
+            progressPercentage,
+            filesRemaining: filesRemainingForNextRun,
+            isComplete: filesRemainingForNextRun === 0
+          }
+        },
         message 
       }),
       { 
