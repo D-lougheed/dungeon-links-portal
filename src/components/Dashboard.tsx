@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -14,12 +13,14 @@ import {
   Sparkles,
   User,
   Map,
-  Calendar
+  Calendar,
+  Square
 } from 'lucide-react';
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
 import ViewOnlyInteractiveMap from './ViewOnlyInteractiveMap';
+import MapAreasManagement from './MapAreasManagement';
 import GameCalendar from './GameCalendar';
 import DiceRoller from './DiceRoller';
 
@@ -33,6 +34,14 @@ const Dashboard = () => {
       title: "Interactive Maps",
       description: "View campaign world locations with an interactive map",
       icon: Map,
+      status: "Available",
+      dmOnly: false
+    },
+    {
+      id: "map-areas-management",
+      title: "Map Areas Management",
+      description: "Create and manage territorial areas on maps",
+      icon: Square,
       status: "Available",
       dmOnly: false
     },
@@ -111,6 +120,10 @@ const Dashboard = () => {
 
   if (activeFeature === "interactive-maps") {
     return <ViewOnlyInteractiveMap onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "map-areas-management") {
+    return <MapAreasManagement onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "game-calendar") {
