@@ -14,12 +14,14 @@ import {
   User,
   Map,
   Calendar,
-  Square
+  Square,
+  Settings
 } from 'lucide-react';
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
 import ViewOnlyInteractiveMap from './ViewOnlyInteractiveMap';
+import InteractiveMapAdmin from './InteractiveMapAdmin';
 import MapAreasManagement from './MapAreasManagement';
 import GameCalendar from './GameCalendar';
 import DiceRoller from './DiceRoller';
@@ -36,6 +38,14 @@ const Dashboard = () => {
       icon: Map,
       status: "Available",
       dmOnly: false
+    },
+    {
+      id: "interactive-maps-admin",
+      title: "Interactive Maps (Admin)",
+      description: "Full map management with pin and map upload capabilities",
+      icon: Settings,
+      status: "Available",
+      dmOnly: true
     },
     {
       id: "map-areas-management",
@@ -120,6 +130,10 @@ const Dashboard = () => {
 
   if (activeFeature === "interactive-maps") {
     return <ViewOnlyInteractiveMap onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "interactive-maps-admin") {
+    return <InteractiveMapAdmin onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "map-areas-management") {
