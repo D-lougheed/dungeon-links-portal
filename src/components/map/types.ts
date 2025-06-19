@@ -1,3 +1,4 @@
+
 // This file should be placed at src/components/map/types.ts
 
 // Database types (from Supabase schema)
@@ -150,7 +151,8 @@ export function convertDatabasePinToPin(dbPin: DatabasePin, mapWidth: number, ma
   };
 }
 
-export function convertPinToDatabasePin(pin: Pin, mapId: string, mapWidth: number, mapHeight: number): Partial<DatabasePin> {
+// Updated conversion function to return only the fields needed for database insert
+export function convertPinToDatabasePin(pin: Pin, mapId: string, mapWidth: number, mapHeight: number) {
   return {
     map_id: mapId,
     pin_type_id: pin.pin_type_id,
