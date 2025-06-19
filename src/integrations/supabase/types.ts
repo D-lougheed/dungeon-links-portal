@@ -388,7 +388,6 @@ export type Database = {
           content_hash: string
           embedding: string | null
           id: string
-          metadata: string | null
           scraped_at: string
           title: string
           updated_at: string
@@ -399,7 +398,6 @@ export type Database = {
           content_hash: string
           embedding?: string | null
           id?: string
-          metadata?: string | null
           scraped_at?: string
           title: string
           updated_at?: string
@@ -410,7 +408,6 @@ export type Database = {
           content_hash?: string
           embedding?: string | null
           id?: string
-          metadata?: string | null
           scraped_at?: string
           title?: string
           updated_at?: string

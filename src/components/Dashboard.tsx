@@ -8,9 +8,12 @@ import {
   BookOpen, 
   Dice6, 
   Scroll,
+  Sword,
+  Crown,
   Compass,
   Bot,
   Sparkles,
+  Settings,
   User,
   Map,
   Calendar,
@@ -19,6 +22,8 @@ import {
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
 import SlumberingAncientsAI from './SlumberingAncientsAI';
+import AdminTools from './AdminTools';
+import InteractiveMap from './InteractiveMap';
 import ViewOnlyInteractiveMap from './ViewOnlyInteractiveMap';
 import MapAreasManagement from './MapAreasManagement';
 import GameCalendar from './GameCalendar';
@@ -30,18 +35,34 @@ const Dashboard = () => {
 
   const features = [
     {
-      id: "interactive-maps",
-      title: "Interactive Maps",
-      description: "View campaign world locations with an interactive map",
+      id: "admin-tools",
+      title: "Admin Tools",
+      description: "Wiki scraping, database management, and AI configuration",
+      icon: Settings,
+      status: "Available",
+      dmOnly: true
+    },
+    {
+      id: "admin-interactive-map",
+      title: "Admin Interactive Maps",
+      description: "Manage campaign world locations with an interactive map",
       icon: Map,
       status: "Available",
-      dmOnly: false
+      dmOnly: true
     },
     {
       id: "map-areas-management",
       title: "Map Areas Management",
       description: "Create and manage territorial areas on maps",
       icon: Square,
+      status: "Available",
+      dmOnly: true
+    },
+    {
+      id: "interactive-maps",
+      title: "Interactive Maps",
+      description: "View campaign world locations with an interactive map",
+      icon: Map,
       status: "Available",
       dmOnly: false
     },
@@ -86,6 +107,14 @@ const Dashboard = () => {
       dmOnly: true
     },
     {
+      id: "quick-references",
+      title: "Quick References",
+      description: "Rules, tables, and useful D&D references",
+      icon: Scroll,
+      status: "Coming Soon",
+      dmOnly: false
+    },
+    {
       id: "dice-roller",
       title: "Dice Roller",
       description: "Digital dice for quick rolls during sessions",
@@ -118,12 +147,20 @@ const Dashboard = () => {
     }
   };
 
-  if (activeFeature === "interactive-maps") {
-    return <ViewOnlyInteractiveMap onBack={() => setActiveFeature(null)} />;
+  if (activeFeature === "admin-tools") {
+    return <AdminTools onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "admin-interactive-map") {
+    return <InteractiveMap onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "map-areas-management") {
     return <MapAreasManagement onBack={() => setActiveFeature(null)} />;
+  }
+
+  if (activeFeature === "interactive-maps") {
+    return <ViewOnlyInteractiveMap onBack={() => setActiveFeature(null)} />;
   }
 
   if (activeFeature === "game-calendar") {
