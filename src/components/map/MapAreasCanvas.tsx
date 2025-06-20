@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -63,19 +62,20 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Save context state
-    ctx.save();
-
-    // Apply transformations: first translate, then scale
-    ctx.translate(offset.x, offset.y);
-    ctx.scale(scale, scale);
-
-    // Draw the map image
+    // Draw the map image first (with transformations)
     const img = new Image();
     img.onload = () => {
+      // Save context state
+      ctx.save();
+
+      // Apply transformations for map content: first translate, then scale
+      ctx.translate(offset.x, offset.y);
+      ctx.scale(scale, scale);
+
+      // Draw the map image
       ctx.drawImage(img, 0, 0, map.width || 800, map.height || 600);
       
-      // Draw existing areas
+      // Draw existing areas (polygons and rectangles)
       mapAreas.forEach((area) => {
         if (area.is_visible === false || hiddenTypes.has(area.area_type)) return;
 
@@ -85,7 +85,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           // Draw polygon
           ctx.fillStyle = color + '40'; // 25% opacity
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2 / scale; // Adjust line width for zoom
+          ctx.lineWidth = 2; // Keep line width constant in map coordinates
           
           ctx.beginPath();
           area.polygon_coordinates.forEach((point, index) => {
@@ -100,17 +100,6 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
-
-          // Draw area name
-          if (area.polygon_coordinates.length > 0) {
-            const centerX = area.polygon_coordinates.reduce((sum, p) => sum + p.x, 0) / area.polygon_coordinates.length * (map.width || 800);
-            const centerY = area.polygon_coordinates.reduce((sum, p) => sum + p.y, 0) / area.polygon_coordinates.length * (map.height || 600);
-            
-            ctx.fillStyle = '#000000';
-            ctx.font = `${14 / scale}px Arial`; // Adjust font size for zoom
-            ctx.textAlign = 'center';
-            ctx.fillText(area.area_name, centerX, centerY);
-          }
         } else if (area.bounding_box) {
           // Draw legacy rectangle
           const { x1, y1, x2, y2 } = area.bounding_box;
@@ -119,20 +108,66 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           
           ctx.fillStyle = color + '40';
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2 / scale; // Adjust line width for zoom
+          ctx.lineWidth = 2; // Keep line width constant in map coordinates
           ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), width, height);
           ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), width, height);
-          
-          // Draw area name
-          ctx.fillStyle = '#000000';
-          ctx.font = `${14 / scale}px Arial`; // Adjust font size for zoom
-          ctx.textAlign = 'center';
-          ctx.fillText(area.area_name, (x1 + x2) / 2, (y1 + y2) / 2);
         }
       });
 
-      // Draw current polygon being created (transform back to screen coordinates)
-      ctx.restore(); // Restore to screen coordinate system
+      // Restore context to remove transformations for text
+      ctx.restore();
+
+      // Draw text labels in screen coordinates (so they stay readable)
+      mapAreas.forEach((area) => {
+        if (area.is_visible === false || hiddenTypes.has(area.area_type)) return;
+
+        let centerX, centerY;
+
+        if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
+          // Calculate center in map coordinates
+          const mapCenterX = area.polygon_coordinates.reduce((sum, p) => sum + p.x, 0) / area.polygon_coordinates.length * (map.width || 800);
+          const mapCenterY = area.polygon_coordinates.reduce((sum, p) => sum + p.y, 0) / area.polygon_coordinates.length * (map.height || 600);
+          
+          // Transform to screen coordinates
+          centerX = mapCenterX * scale + offset.x;
+          centerY = mapCenterY * scale + offset.y;
+        } else if (area.bounding_box) {
+          // Calculate center in map coordinates
+          const { x1, y1, x2, y2 } = area.bounding_box;
+          const mapCenterX = (x1 + x2) / 2;
+          const mapCenterY = (y1 + y2) / 2;
+          
+          // Transform to screen coordinates
+          centerX = mapCenterX * scale + offset.x;
+          centerY = mapCenterY * scale + offset.y;
+        }
+
+        if (centerX !== undefined && centerY !== undefined) {
+          // Draw text with consistent size regardless of zoom
+          ctx.fillStyle = '#000000';
+          ctx.font = '14px Arial'; // Fixed font size
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          // Add text background for better readability
+          const textMetrics = ctx.measureText(area.area_name);
+          const textWidth = textMetrics.width;
+          const textHeight = 16; // Approximate height
+          
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.fillRect(
+            centerX - textWidth / 2 - 4,
+            centerY - textHeight / 2 - 2,
+            textWidth + 8,
+            textHeight + 4
+          );
+          
+          ctx.fillStyle = '#000000';
+          ctx.fillText(area.area_name, centerX, centerY);
+        }
+      });
+
+      // Draw current polygon being created in screen coordinates
       if (currentPolygon.length > 0) {
         ctx.strokeStyle = '#ff0000';
         ctx.lineWidth = 3;
@@ -141,8 +176,8 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
         ctx.beginPath();
         currentPolygon.forEach((point, index) => {
           // Transform map coordinates to screen coordinates
-          const screenX = (point.x * scale) + offset.x;
-          const screenY = (point.y * scale) + offset.y;
+          const screenX = point.x * scale + offset.x;
+          const screenY = point.y * scale + offset.y;
           if (index === 0) {
             ctx.moveTo(screenX, screenY);
           } else {
@@ -154,11 +189,11 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
 
         // Draw points
         currentPolygon.forEach(point => {
-          const screenX = (point.x * scale) + offset.x;
-          const screenY = (point.y * scale) + offset.y;
+          const screenX = point.x * scale + offset.x;
+          const screenY = point.y * scale + offset.y;
           ctx.fillStyle = '#ff0000';
           ctx.beginPath();
-          ctx.arc(screenX, screenY, 4, 0, 2 * Math.PI);
+          ctx.arc(screenX, screenY, 6, 0, 2 * Math.PI); // Slightly larger for better visibility
           ctx.fill();
         });
       }
