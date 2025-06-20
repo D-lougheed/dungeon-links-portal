@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -63,14 +62,14 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Save context
+    // Save context state
     ctx.save();
 
-    // Apply transformations
-    ctx.scale(scale, scale);
+    // Apply transformations: first translate, then scale
     ctx.translate(offset.x, offset.y);
+    ctx.scale(scale, scale);
 
-    // Draw map image
+    // Draw the map image
     const img = new Image();
     img.onload = () => {
       ctx.drawImage(img, 0, 0, map.width || 800, map.height || 600);
@@ -85,7 +84,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           // Draw polygon
           ctx.fillStyle = color + '40'; // 25% opacity
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2 / scale; // Adjust line width for zoom
           
           ctx.beginPath();
           area.polygon_coordinates.forEach((point, index) => {
@@ -107,7 +106,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
             const centerY = area.polygon_coordinates.reduce((sum, p) => sum + p.y, 0) / area.polygon_coordinates.length * (map.height || 600);
             
             ctx.fillStyle = '#000000';
-            ctx.font = '14px Arial';
+            ctx.font = `${14 / scale}px Arial`; // Adjust font size for zoom
             ctx.textAlign = 'center';
             ctx.fillText(area.area_name, centerX, centerY);
           }
@@ -119,19 +118,20 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           
           ctx.fillStyle = color + '40';
           ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2 / scale; // Adjust line width for zoom
           ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), width, height);
           ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), width, height);
           
           // Draw area name
           ctx.fillStyle = '#000000';
-          ctx.font = '14px Arial';
+          ctx.font = `${14 / scale}px Arial`; // Adjust font size for zoom
           ctx.textAlign = 'center';
           ctx.fillText(area.area_name, (x1 + x2) / 2, (y1 + y2) / 2);
         }
       });
 
-      // Draw current polygon being created
+      // Draw current polygon being created (transform back to screen coordinates)
+      ctx.restore(); // Restore to screen coordinate system
       if (currentPolygon.length > 0) {
         ctx.strokeStyle = '#ff0000';
         ctx.lineWidth = 3;
@@ -139,10 +139,13 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
         
         ctx.beginPath();
         currentPolygon.forEach((point, index) => {
+          // Transform map coordinates to screen coordinates
+          const screenX = (point.x * scale) + offset.x;
+          const screenY = (point.y * scale) + offset.y;
           if (index === 0) {
-            ctx.moveTo(point.x, point.y);
+            ctx.moveTo(screenX, screenY);
           } else {
-            ctx.lineTo(point.x, point.y);
+            ctx.lineTo(screenX, screenY);
           }
         });
         ctx.stroke();
@@ -150,17 +153,16 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
 
         // Draw points
         currentPolygon.forEach(point => {
+          const screenX = (point.x * scale) + offset.x;
+          const screenY = (point.y * scale) + offset.y;
           ctx.fillStyle = '#ff0000';
           ctx.beginPath();
-          ctx.arc(point.x, point.y, 4, 0, 2 * Math.PI);
+          ctx.arc(screenX, screenY, 4, 0, 2 * Math.PI);
           ctx.fill();
         });
       }
     };
     img.src = map.image_url;
-
-    // Restore context
-    ctx.restore();
   }, [map, mapAreas, scale, offset, currentPolygon, hiddenTypes, getAreaColor]);
 
   useEffect(() => {
@@ -190,10 +192,14 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     if (!canvas) return { x: 0, y: 0 };
 
     const rect = canvas.getBoundingClientRect();
-    const x = (screenX - rect.left) / scale - offset.x;
-    const y = (screenY - rect.top) / scale - offset.y;
+    const canvasX = screenX - rect.left;
+    const canvasY = screenY - rect.top;
     
-    return { x, y };
+    // Transform screen coordinates to map coordinates
+    const mapX = (canvasX - offset.x) / scale;
+    const mapY = (canvasY - offset.y) / scale;
+    
+    return { x: mapX, y: mapY };
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -217,15 +223,32 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (activeMode === 'view' || userRole !== 'dm') {
       setIsDragging(true);
-      setDragStart({ x: e.clientX - offset.x * scale, y: e.clientY - offset.y * scale });
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const canvasX = e.clientX - rect.left;
+      const canvasY = e.clientY - rect.top;
+      
+      setDragStart({ 
+        x: canvasX - offset.x, 
+        y: canvasY - offset.y 
+      });
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isDragging) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const canvasX = e.clientX - rect.left;
+      const canvasY = e.clientY - rect.top;
+      
       setOffset({
-        x: (e.clientX - dragStart.x) / scale,
-        y: (e.clientY - dragStart.y) / scale
+        x: canvasX - dragStart.x,
+        y: canvasY - dragStart.y
       });
     }
   };
@@ -248,26 +271,58 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     const newScale = Math.max(0.1, Math.min(5, scale * zoomFactor));
 
     if (newScale !== scale) {
-      // Zoom towards mouse position
-      const zoomPointX = (mouseX / scale - offset.x);
-      const zoomPointY = (mouseY / scale - offset.y);
+      // Calculate the point in map coordinates before zoom
+      const mapX = (mouseX - offset.x) / scale;
+      const mapY = (mouseY - offset.y) / scale;
       
-      setOffset({
-        x: offset.x - zoomPointX * (newScale - scale) / newScale,
-        y: offset.y - zoomPointY * (newScale - scale) / newScale
-      });
+      // Calculate new offset to keep the mouse point fixed
+      const newOffsetX = mouseX - mapX * newScale;
+      const newOffsetY = mouseY - mapY * newScale;
       
+      setOffset({ x: newOffsetX, y: newOffsetY });
       setScale(newScale);
     }
   };
 
   const handleZoomIn = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
     const newScale = Math.min(5, scale * 1.2);
+    
+    // Calculate the point in map coordinates before zoom
+    const mapX = (centerX - offset.x) / scale;
+    const mapY = (centerY - offset.y) / scale;
+    
+    // Calculate new offset to keep the center point fixed
+    const newOffsetX = centerX - mapX * newScale;
+    const newOffsetY = centerY - mapY * newScale;
+    
+    setOffset({ x: newOffsetX, y: newOffsetY });
     setScale(newScale);
   };
 
   const handleZoomOut = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
     const newScale = Math.max(0.1, scale * 0.8);
+    
+    // Calculate the point in map coordinates before zoom
+    const mapX = (centerX - offset.x) / scale;
+    const mapY = (centerY - offset.y) / scale;
+    
+    // Calculate new offset to keep the center point fixed
+    const newOffsetX = centerX - mapX * newScale;
+    const newOffsetY = centerY - mapY * newScale;
+    
+    setOffset({ x: newOffsetX, y: newOffsetY });
     setScale(newScale);
   };
 
