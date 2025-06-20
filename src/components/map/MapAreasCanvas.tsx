@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Map, MapArea, Point, RegionType } from './types';
+import { ZoomIn, ZoomOut } from 'lucide-react';
 
 interface MapAreasCanvasProps {
   map: Map;
@@ -72,7 +73,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     // Draw map image
     const img = new Image();
     img.onload = () => {
-      ctx.drawImage(img, 0, 0, map.width, map.height);
+      ctx.drawImage(img, 0, 0, map.width || 800, map.height || 600);
       
       // Draw existing areas
       mapAreas.forEach((area) => {
@@ -88,8 +89,8 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           
           ctx.beginPath();
           area.polygon_coordinates.forEach((point, index) => {
-            const x = point.x * map.width;
-            const y = point.y * map.height;
+            const x = point.x * (map.width || 800);
+            const y = point.y * (map.height || 600);
             if (index === 0) {
               ctx.moveTo(x, y);
             } else {
@@ -102,8 +103,8 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
 
           // Draw area name
           if (area.polygon_coordinates.length > 0) {
-            const centerX = area.polygon_coordinates.reduce((sum, p) => sum + p.x, 0) / area.polygon_coordinates.length * map.width;
-            const centerY = area.polygon_coordinates.reduce((sum, p) => sum + p.y, 0) / area.polygon_coordinates.length * map.height;
+            const centerX = area.polygon_coordinates.reduce((sum, p) => sum + p.x, 0) / area.polygon_coordinates.length * (map.width || 800);
+            const centerY = area.polygon_coordinates.reduce((sum, p) => sum + p.y, 0) / area.polygon_coordinates.length * (map.height || 600);
             
             ctx.fillStyle = '#000000';
             ctx.font = '14px Arial';
@@ -235,8 +236,44 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const newScale = scale * (e.deltaY > 0 ? 0.9 : 1.1);
-    setScale(Math.max(0.1, Math.min(5, newScale)));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Calculate zoom factor
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.1, Math.min(5, scale * zoomFactor));
+
+    if (newScale !== scale) {
+      // Zoom towards mouse position
+      const zoomPointX = (mouseX / scale - offset.x);
+      const zoomPointY = (mouseY / scale - offset.y);
+      
+      setOffset({
+        x: offset.x - zoomPointX * (newScale - scale) / newScale,
+        y: offset.y - zoomPointY * (newScale - scale) / newScale
+      });
+      
+      setScale(newScale);
+    }
+  };
+
+  const handleZoomIn = () => {
+    const newScale = Math.min(5, scale * 1.2);
+    setScale(newScale);
+  };
+
+  const handleZoomOut = () => {
+    const newScale = Math.max(0.1, scale * 0.8);
+    setScale(newScale);
+  };
+
+  const handleResetZoom = () => {
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
   };
 
   const startAreaCreation = () => {
@@ -255,8 +292,8 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     if (currentPolygon.length >= 3 && areaForm.name) {
       // Convert to normalized coordinates
       const normalizedCoords = currentPolygon.map(point => ({
-        x: point.x / map.width,
-        y: point.y / map.height
+        x: point.x / (map.width || 800),
+        y: point.y / (map.height || 600)
       }));
       
       onAreaAdd(normalizedCoords, areaForm.name, areaForm.type, areaForm.description);
@@ -370,18 +407,36 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           style={{ cursor: activeMode === 'area' && userRole === 'dm' ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
         />
         
-        {/* Canvas Controls */}
+        {/* Enhanced Canvas Controls */}
         <div className="absolute top-4 right-4 space-y-2">
-          <Button
-            onClick={() => setScale(1)}
-            size="sm"
-            variant="outline"
-            className="bg-white/90"
-          >
-            Reset Zoom
-          </Button>
-          <div className="bg-white/90 px-2 py-1 rounded text-xs">
-            Zoom: {Math.round(scale * 100)}%
+          <div className="flex flex-col space-y-1">
+            <Button
+              onClick={handleZoomIn}
+              size="sm"
+              variant="outline"
+              className="bg-white/90 hover:bg-white"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <Button
+              onClick={handleZoomOut}
+              size="sm"
+              variant="outline"
+              className="bg-white/90 hover:bg-white"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <Button
+              onClick={handleResetZoom}
+              size="sm"
+              variant="outline"
+              className="bg-white/90 hover:bg-white text-xs px-2"
+            >
+              Reset
+            </Button>
+          </div>
+          <div className="bg-white/90 px-2 py-1 rounded text-xs font-medium">
+            {Math.round(scale * 100)}%
           </div>
         </div>
       </div>
