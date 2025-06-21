@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -53,7 +54,7 @@ const Dashboard = () => {
       description: "Create and manage territorial areas on maps",
       icon: Square,
       status: "Available",
-      dmOnly: false
+      dmOnly: true
     },
     {
       id: "game-calendar",
@@ -69,7 +70,7 @@ const Dashboard = () => {
       description: "Get AI help with world building, NPCs, and campaign ideas",
       icon: Bot,
       status: "Available",
-      dmOnly: false
+      dmOnly: true
     },
     {
       id: "slumbering-ancients-ai",
@@ -77,7 +78,7 @@ const Dashboard = () => {
       description: "Specialized AI assistant for ancient lore and mysteries",
       icon: Sparkles,
       status: "Available",
-      dmOnly: false
+      dmOnly: true
     },
     {
       id: "character-management",
@@ -92,8 +93,8 @@ const Dashboard = () => {
       title: "Campaign Notes",
       description: "Session notes, plot hooks, and story tracking",
       icon: BookOpen,
-      status: "Coming Soon",
-      dmOnly: true
+      status: "Available",
+      dmOnly: false
     },
     {
       id: "dice-roller",
@@ -108,7 +109,7 @@ const Dashboard = () => {
       title: "Quest Tracker",
       description: "Active quests, objectives, and rewards",
       icon: Compass,
-      status: "Coming Soon",
+      status: "Available",
       dmOnly: false
     }
   ];
