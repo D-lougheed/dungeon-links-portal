@@ -25,6 +25,10 @@ interface UserManagementProps {
   onBack: () => void;
 }
 
+interface UserRole {
+  role: string;
+}
+
 interface UserProfile {
   id: string;
   email: string;
@@ -32,6 +36,7 @@ interface UserProfile {
   last_name: string | null;
   is_active: boolean;
   created_at: string;
+  user_roles: UserRole[];
   role?: string;
 }
 
@@ -46,7 +51,7 @@ interface UserInvitation {
 }
 
 const UserManagement = ({ onBack }: UserManagementProps) => {
-  const { userRole } = useAuth();
+  const { userRole, user } = useAuth();
   const { toast } = useToast();
   
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -130,12 +135,23 @@ const UserManagement = ({ onBack }: UserManagementProps) => {
     e.preventDefault();
     setIsInviting(true);
 
+    if (!user?.id) {
+      toast({
+        title: "Error",
+        description: "User ID not found. Please try logging in again.",
+        variant: "destructive"
+      });
+      setIsInviting(false);
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('user_invitations')
         .insert({
           email: inviteForm.email,
-          role: inviteForm.role
+          role: inviteForm.role,
+          invited_by: user.id
         });
 
       if (error) throw error;
