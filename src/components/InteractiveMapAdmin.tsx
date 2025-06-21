@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, MapPin, Ruler, Upload } from 'lucide-react';
@@ -10,7 +9,8 @@ import MapCanvas from './map/MapCanvas';
 import PinManager from './map/PinManager';
 import DistanceTool from './map/DistanceTool';
 import MapUploader from './map/MapUploader';
-import { Map, Pin, PinType, DistanceMeasurement, convertDatabasePinToPin, convertPinToDatabasePin } from './map/types';
+import MapAreasToggle from './map/MapAreasToggle';
+import { Map, Pin, PinType, DistanceMeasurement, MapArea, convertDatabasePinToPin, convertPinToDatabasePin } from './map/types';
 
 interface InteractiveMapAdminProps {
   onBack: () => void;
@@ -25,6 +25,8 @@ const InteractiveMapAdmin: React.FC<InteractiveMapAdminProps> = ({ onBack }) => 
   const [pins, setPins] = useState<Pin[]>([]);
   const [pinTypes, setPinTypes] = useState<PinType[]>([]);
   const [distances, setDistances] = useState<DistanceMeasurement[]>([]);
+  const [mapAreas, setMapAreas] = useState<MapArea[]>([]);
+  const [showAreas, setShowAreas] = useState(false);
   const [activeMode, setActiveMode] = useState<'view' | 'pin' | 'distance'>('view');
   const [selectedPinType, setSelectedPinType] = useState<string | null>(null);
   const [showUploader, setShowUploader] = useState(false);
@@ -41,6 +43,7 @@ const InteractiveMapAdmin: React.FC<InteractiveMapAdminProps> = ({ onBack }) => 
     if (selectedMap) {
       loadPins();
       loadDistances();
+      loadMapAreas();
     }
   }, [selectedMap]);
 
@@ -143,6 +146,29 @@ const InteractiveMapAdmin: React.FC<InteractiveMapAdminProps> = ({ onBack }) => 
       setDistances(convertedDistances);
     } catch (error) {
       console.error('Error loading distances:', error);
+    }
+  };
+
+  const loadMapAreas = async () => {
+    if (!selectedMap) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('map_areas')
+        .select('*')
+        .eq('map_id', selectedMap.id)
+        .eq('is_visible', true)
+        .order('area_name');
+
+      if (error) throw error;
+      setMapAreas(data || []);
+    } catch (error) {
+      console.error('Error loading map areas:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load map areas",
+        variant: "destructive",
+      });
     }
   };
 
@@ -442,6 +468,8 @@ const InteractiveMapAdmin: React.FC<InteractiveMapAdminProps> = ({ onBack }) => 
                 map={selectedMap}
                 pins={pins}
                 distances={distances}
+                mapAreas={mapAreas}
+                showAreas={showAreas}
                 activeMode={activeMode}
                 onPinAdd={handlePinAdd}
                 onDistanceAdd={handleDistanceAdd}
@@ -451,6 +479,12 @@ const InteractiveMapAdmin: React.FC<InteractiveMapAdminProps> = ({ onBack }) => 
 
             {/* Sidebar */}
             <div className="space-y-4">
+              <MapAreasToggle
+                mapAreas={mapAreas}
+                showAreas={showAreas}
+                onToggleAreas={setShowAreas}
+              />
+
               <PinManager
                 pinTypes={pinTypes}
                 selectedPinType={selectedPinType}

@@ -1,11 +1,12 @@
-
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Pin, DistanceMeasurement, Map } from './types';
+import { Pin, DistanceMeasurement, Map, MapArea } from './types';
 
 interface MapCanvasProps {
   map: Map;
   pins: Pin[];
   distances: DistanceMeasurement[];
+  mapAreas?: MapArea[];
+  showAreas?: boolean;
   activeMode: 'view' | 'pin' | 'distance';
   onPinAdd: (x: number, y: number) => void;
   onDistanceAdd: (points: { x: number; y: number }[], distance: number) => void;
@@ -16,6 +17,8 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
   map,
   pins,
   distances,
+  mapAreas = [],
+  showAreas = false,
   activeMode,
   onPinAdd,
   onDistanceAdd,
@@ -83,6 +86,76 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     });
   }, [map, imageLoaded]);
 
+  // Helper function to draw map areas
+  const drawMapAreas = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (!showAreas || mapAreas.length === 0) return;
+
+    mapAreas.forEach(area => {
+      if (!area.is_visible || !area.player_viewable) return;
+
+      // Draw polygon if coordinates exist
+      if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
+        ctx.fillStyle = `${area.area_type === 'forest' ? '#22c55e' : 
+                         area.area_type === 'mountain' ? '#a3a3a3' : 
+                         area.area_type === 'water' ? '#3b82f6' : 
+                         area.area_type === 'desert' ? '#f59e0b' : '#6b7280'}40`; // 40 for transparency
+        ctx.strokeStyle = area.area_type === 'forest' ? '#22c55e' : 
+                         area.area_type === 'mountain' ? '#a3a3a3' : 
+                         area.area_type === 'water' ? '#3b82f6' : 
+                         area.area_type === 'desert' ? '#f59e0b' : '#6b7280';
+        ctx.lineWidth = 2 / scale;
+
+        ctx.beginPath();
+        const firstPoint = area.polygon_coordinates[0];
+        ctx.moveTo(firstPoint.x * map.width, firstPoint.y * map.height);
+        
+        area.polygon_coordinates.slice(1).forEach(point => {
+          ctx.lineTo(point.x * map.width, point.y * map.height);
+        });
+        
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw area label
+        const centerX = area.polygon_coordinates.reduce((sum, p) => sum + p.x, 0) / area.polygon_coordinates.length * map.width;
+        const centerY = area.polygon_coordinates.reduce((sum, p) => sum + p.y, 0) / area.polygon_coordinates.length * map.height;
+        
+        ctx.fillStyle = '#000000';
+        ctx.font = `bold ${14 / scale}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(area.area_name, centerX, centerY);
+      }
+      // Draw bounding box if polygon doesn't exist
+      else if (area.bounding_box) {
+        const box = area.bounding_box;
+        const x = box.x1 * map.width;
+        const y = box.y1 * map.height;
+        const width = (box.x2 - box.x1) * map.width;
+        const height = (box.y2 - box.y1) * map.height;
+
+        ctx.fillStyle = `${area.area_type === 'forest' ? '#22c55e' : 
+                         area.area_type === 'mountain' ? '#a3a3a3' : 
+                         area.area_type === 'water' ? '#3b82f6' : 
+                         area.area_type === 'desert' ? '#f59e0b' : '#6b7280'}40`; // 40 for transparency
+        ctx.strokeStyle = area.area_type === 'forest' ? '#22c55e' : 
+                         area.area_type === 'mountain' ? '#a3a3a3' : 
+                         area.area_type === 'water' ? '#3b82f6' : 
+                         area.area_type === 'desert' ? '#f59e0b' : '#6b7280';
+        ctx.lineWidth = 2 / scale;
+
+        ctx.fillRect(x, y, width, height);
+        ctx.strokeRect(x, y, width, height);
+
+        // Draw area label
+        ctx.fillStyle = '#000000';
+        ctx.font = `bold ${14 / scale}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(area.area_name, x + width / 2, y + height / 2);
+      }
+    });
+  }, [showAreas, mapAreas, map.width, map.height, scale]);
+
   // Draw everything on canvas
   const draw = useCallback(() => {
     if (!canvasRef.current || !imageRef.current || !imageLoaded) {
@@ -108,6 +181,9 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
 
     // Draw map image
     ctx.drawImage(imageRef.current, 0, 0, map.width, map.height);
+    
+    // Draw map areas (behind other elements)
+    drawMapAreas(ctx);
     
     // Draw distance measurements
     distances.forEach(distance => {
@@ -194,7 +270,7 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     
     // Restore context
     ctx.restore();
-  }, [map, pins, distances, scale, offset, distancePoints, activeMode, hoveredPin, imageLoaded]);
+  }, [map, pins, distances, scale, offset, distancePoints, activeMode, hoveredPin, imageLoaded, drawMapAreas]);
 
   // Draw on every render
   useEffect(() => {
@@ -386,6 +462,7 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
               <p>🖱️ Click and drag to pan</p>
               <p>🔍 Scroll to zoom</p>
               <p>📍 Hover over pins for details</p>
+              {showAreas && <p>🗺️ Areas overlay enabled</p>}
             </div>
           )}
           {activeMode === 'pin' && userRole === 'dm' && (
