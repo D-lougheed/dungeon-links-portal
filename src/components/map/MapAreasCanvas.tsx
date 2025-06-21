@@ -205,6 +205,24 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     drawCanvas();
   }, [drawCanvas]);
 
+  // Add wheel event listener to prevent page scroll
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheelCapture = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    // Add both passive and non-passive listeners to ensure it works
+    canvas.addEventListener('wheel', handleWheelCapture, { passive: false });
+    
+    return () => {
+      canvas.removeEventListener('wheel', handleWheelCapture);
+    };
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -294,6 +312,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    // Prevent page scrolling
     e.preventDefault();
     e.stopPropagation();
     
@@ -304,8 +323,8 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    // Calculate zoom factor
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    // Calculate zoom factor (reduced sensitivity for smoother zooming)
+    const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
     const newScale = Math.max(0.1, Math.min(5, scale * zoomFactor));
 
     if (newScale !== scale) {
@@ -486,6 +505,7 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
       <div 
         ref={containerRef}
         className="relative w-full h-[600px] border border-amber-300 rounded-lg overflow-hidden bg-gray-100"
+        style={{ touchAction: 'none' }} // Prevent touch scrolling on mobile
       >
         <canvas
           ref={canvasRef}
