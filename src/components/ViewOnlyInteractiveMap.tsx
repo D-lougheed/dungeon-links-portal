@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, Ruler } from 'lucide-react';
@@ -10,7 +9,7 @@ import MapCanvas from './map/MapCanvas';
 import PinManager from './map/PinManager';
 import DistanceTool from './map/DistanceTool';
 import MapAreasToggle from './map/MapAreasToggle';
-import { Map, Pin, PinType, DistanceMeasurement, MapArea, convertDatabasePinToPin } from './map/types';
+import { Map, Pin, PinType, DistanceMeasurement, MapArea, RegionType, convertDatabasePinToPin } from './map/types';
 
 interface ViewOnlyInteractiveMapProps {
   onBack: () => void;
@@ -26,6 +25,7 @@ const ViewOnlyInteractiveMap: React.FC<ViewOnlyInteractiveMapProps> = ({ onBack 
   const [pinTypes, setPinTypes] = useState<PinType[]>([]);
   const [distances, setDistances] = useState<DistanceMeasurement[]>([]);
   const [mapAreas, setMapAreas] = useState<MapArea[]>([]);
+  const [regionTypes, setRegionTypes] = useState<RegionType[]>([]);
   const [showAreas, setShowAreas] = useState(false);
   const [activeMode, setActiveMode] = useState<'view' | 'distance'>('view');
   const [isLoading, setIsLoading] = useState(true);
@@ -34,6 +34,7 @@ const ViewOnlyInteractiveMap: React.FC<ViewOnlyInteractiveMapProps> = ({ onBack 
   useEffect(() => {
     loadMaps();
     loadPinTypes();
+    loadRegionTypes();
   }, []);
 
   // Load data when map is selected
@@ -79,6 +80,21 @@ const ViewOnlyInteractiveMap: React.FC<ViewOnlyInteractiveMapProps> = ({ onBack 
       setPinTypes(data || []);
     } catch (error) {
       console.error('Error loading pin types:', error);
+    }
+  };
+
+  const loadRegionTypes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('region_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+      setRegionTypes(data || []);
+    } catch (error) {
+      console.error('Error loading region types:', error);
     }
   };
 
@@ -216,6 +232,42 @@ const ViewOnlyInteractiveMap: React.FC<ViewOnlyInteractiveMapProps> = ({ onBack 
     }
   };
 
+  // Get color for area type (including custom types)
+  const getAreaColor = (areaType: string) => {
+    // Check custom types first
+    const customType = regionTypes.find(type => type.name === areaType && type.is_active);
+    if (customType) {
+      return customType.color;
+    }
+
+    // Default colors for different area types
+    const colors: { [key: string]: string } = {
+      'terrain': '#22c55e',     // Green
+      'landmark': '#3b82f6',    // Blue
+      'region': '#f59e0b',      // Amber
+      'settlement': '#8b5cf6',  // Purple
+      'water': '#06b6d4',       // Cyan
+      'forest': '#16a34a',      // Dark Green
+      'mountain': '#78716c',    // Stone/Gray
+      'desert': '#eab308',      // Yellow
+      'swamp': '#065f46',       // Dark Green-Gray
+      'plains': '#84cc16',      // Light Green
+      'city': '#dc2626',        // Red
+      'town': '#ea580c',        // Orange
+      'village': '#ca8a04',     // Dark Yellow
+      'dungeon': '#7c2d12',     // Dark Brown
+      'ruins': '#6b7280',       // Gray
+      'cave': '#374151',        // Dark Gray
+      'road': '#a3a3a3',        // Light Gray
+      'river': '#0891b2',       // Dark Cyan
+      'lake': '#0284c7',        // Dark Blue
+      'ocean': '#0369a1',       // Deep Blue
+      'default': '#ef4444'      // Red fallback
+    };
+    
+    return colors[areaType] || colors.default;
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center">
@@ -321,6 +373,8 @@ const ViewOnlyInteractiveMap: React.FC<ViewOnlyInteractiveMapProps> = ({ onBack 
                 onPinAdd={() => {}} // Disabled for view-only
                 onDistanceAdd={handleDistanceAdd}
                 userRole={userRole}
+                getAreaColor={getAreaColor}
+                regionTypes={regionTypes}
               />
             </div>
 
@@ -330,6 +384,7 @@ const ViewOnlyInteractiveMap: React.FC<ViewOnlyInteractiveMapProps> = ({ onBack 
                 mapAreas={mapAreas}
                 showAreas={showAreas}
                 onToggleAreas={setShowAreas}
+                getAreaColor={getAreaColor}
               />
 
               <PinManager
