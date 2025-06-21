@@ -313,6 +313,7 @@ export type Database = {
           email: string
           first_name: string | null
           id: string
+          is_active: boolean
           last_name: string | null
           updated_at: string
         }
@@ -321,6 +322,7 @@ export type Database = {
           email: string
           first_name?: string | null
           id: string
+          is_active?: boolean
           last_name?: string | null
           updated_at?: string
         }
@@ -329,6 +331,7 @@ export type Database = {
           email?: string
           first_name?: string | null
           id?: string
+          is_active?: boolean
           last_name?: string | null
           updated_at?: string
         }
@@ -361,6 +364,39 @@ export type Database = {
           is_active?: boolean
           name?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      user_invitations: {
+        Row: {
+          accepted_at: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invitation_token: string | null
+          invited_by: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string
+          email: string
+          expires_at?: string
+          id?: string
+          invitation_token?: string | null
+          invited_by: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invitation_token?: string | null
+          invited_by?: string
+          role?: Database["public"]["Enums"]["app_role"]
         }
         Relationships: []
       }
@@ -430,6 +466,10 @@ export type Database = {
         Args: { "": string } | { "": unknown }
         Returns: unknown
       }
+      deactivate_user: {
+        Args: { target_user_id: string }
+        Returns: boolean
+      }
       get_user_role: {
         Args: Record<PropertyKey, never> | { _user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
@@ -473,6 +513,10 @@ export type Database = {
         Args: { "": unknown }
         Returns: unknown
       }
+      is_admin: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
       is_dm: {
         Args: Record<PropertyKey, never> | { user_id: string }
         Returns: boolean
@@ -496,6 +540,10 @@ export type Database = {
       l2_normalize: {
         Args: { "": string } | { "": unknown } | { "": unknown }
         Returns: unknown
+      }
+      reactivate_user: {
+        Args: { target_user_id: string }
+        Returns: boolean
       }
       sparsevec_out: {
         Args: { "": unknown }

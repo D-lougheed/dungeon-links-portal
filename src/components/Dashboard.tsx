@@ -16,7 +16,8 @@ import {
   Map,
   Calendar,
   Square,
-  Settings
+  Settings,
+  UserCog
 } from 'lucide-react';
 import { useState } from 'react';
 import GeneralAIAssistant from './GeneralAIAssistant';
@@ -26,12 +27,21 @@ import InteractiveMapAdmin from './InteractiveMapAdmin';
 import MapAreasManagement from './MapAreasManagement';
 import GameCalendar from './GameCalendar';
 import DiceRoller from './DiceRoller';
+import UserManagement from './UserManagement';
 
 const Dashboard = () => {
   const { signOut, user, userRole } = useAuth();
   const [activeFeature, setActiveFeature] = useState<string | null>(null);
 
   const features = [
+    {
+      id: "user-management",
+      title: "User Management",
+      description: "Invite users, manage roles, and handle user accounts",
+      icon: UserCog,
+      status: "Available",
+      dmOnly: true
+    },
     {
       id: "interactive-maps",
       title: "Interactive Maps",
@@ -128,6 +138,10 @@ const Dashboard = () => {
       setActiveFeature(featureId);
     }
   };
+
+  if (activeFeature === "user-management") {
+    return <UserManagement onBack={() => setActiveFeature(null)} />;
+  }
 
   if (activeFeature === "interactive-maps") {
     return <ViewOnlyInteractiveMap onBack={() => setActiveFeature(null)} />;
