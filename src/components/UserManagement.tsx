@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -25,10 +24,6 @@ interface UserManagementProps {
   onBack: () => void;
 }
 
-interface UserRole {
-  role: string;
-}
-
 interface UserProfile {
   id: string;
   email: string;
@@ -36,7 +31,6 @@ interface UserProfile {
   last_name: string | null;
   is_active: boolean;
   created_at: string;
-  user_roles: UserRole[];
   role?: string;
 }
 
@@ -85,27 +79,29 @@ const UserManagement = ({ onBack }: UserManagementProps) => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch users with their roles
-      const { data: usersData, error: usersError } = await supabase
+      // First, fetch all profiles
+      const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select(`
-          id,
-          email,
-          first_name,
-          last_name,
-          is_active,
-          created_at,
-          user_roles!inner(role)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (usersError) throw usersError;
+      if (profilesError) throw profilesError;
 
-      // Transform the data to include role
-      const transformedUsers = usersData?.map(user => ({
-        ...user,
-        role: user.user_roles?.[0]?.role || 'player'
-      })) || [];
+      // Then, fetch user roles separately
+      const { data: rolesData, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('user_id, role');
+
+      if (rolesError) throw rolesError;
+
+      // Combine the data
+      const transformedUsers = profilesData?.map(profile => {
+        const userRole = rolesData?.find(role => role.user_id === profile.id);
+        return {
+          ...profile,
+          role: userRole?.role || 'player'
+        };
+      }) || [];
 
       setUsers(transformedUsers);
 
