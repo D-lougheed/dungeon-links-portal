@@ -79,12 +79,13 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
       mapAreas.forEach((area) => {
         if (area.is_visible === false || hiddenTypes.has(area.area_type)) return;
 
+        // Get the proper color for this area type
         const color = getAreaColor(area.area_type);
         
         if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
-          // Draw polygon
-          ctx.fillStyle = color + '40'; // 25% opacity
-          ctx.strokeStyle = color;
+          // Draw polygon with proper color
+          ctx.fillStyle = color + '40'; // 25% opacity for fill
+          ctx.strokeStyle = color; // Full opacity for stroke
           ctx.lineWidth = 2; // Keep line width constant in map coordinates
           
           ctx.beginPath();
@@ -101,13 +102,13 @@ const MapAreasCanvas: React.FC<MapAreasCanvasProps> = ({
           ctx.fill();
           ctx.stroke();
         } else if (area.bounding_box) {
-          // Draw legacy rectangle
+          // Draw legacy rectangle with proper color
           const { x1, y1, x2, y2 } = area.bounding_box;
           const width = Math.abs(x2 - x1);
           const height = Math.abs(y2 - y1);
           
-          ctx.fillStyle = color + '40';
-          ctx.strokeStyle = color;
+          ctx.fillStyle = color + '40'; // 25% opacity for fill
+          ctx.strokeStyle = color; // Full opacity for stroke
           ctx.lineWidth = 2; // Keep line width constant in map coordinates
           ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), width, height);
           ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), width, height);
