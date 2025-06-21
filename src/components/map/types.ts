@@ -106,6 +106,7 @@ export interface MapArea {
   created_by?: string | null;
   updated_at?: string;
   is_visible?: boolean;
+  player_viewable?: boolean;
 }
 
 // Custom Region Type interface - now matches database schema

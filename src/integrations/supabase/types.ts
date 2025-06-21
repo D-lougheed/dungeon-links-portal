@@ -65,6 +65,7 @@ export type Database = {
           is_visible: boolean
           landmarks: Json | null
           map_id: string
+          player_viewable: boolean
           polygon_coordinates: Json | null
           terrain_features: Json | null
           updated_at: string
@@ -83,6 +84,7 @@ export type Database = {
           is_visible?: boolean
           landmarks?: Json | null
           map_id: string
+          player_viewable?: boolean
           polygon_coordinates?: Json | null
           terrain_features?: Json | null
           updated_at?: string
@@ -101,6 +103,7 @@ export type Database = {
           is_visible?: boolean
           landmarks?: Json | null
           map_id?: string
+          player_viewable?: boolean
           polygon_coordinates?: Json | null
           terrain_features?: Json | null
           updated_at?: string

@@ -1,8 +1,10 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Trash2, Edit, Square, Settings } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Trash2, Edit, Square, Settings, Eye, Users } from 'lucide-react';
 import { MapArea, RegionType } from './types';
 import RegionTypeManager from './RegionTypeManager';
 import VisibilityControls from './VisibilityControls';
@@ -49,7 +51,8 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
     setEditForm({
       area_name: area.area_name,
       area_type: area.area_type,
-      description: area.description
+      description: area.description,
+      player_viewable: area.player_viewable || false
     });
   };
 
@@ -64,6 +67,10 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
   const handleEditCancel = () => {
     setEditingArea(null);
     setEditForm({});
+  };
+
+  const handlePlayerViewableToggle = (areaId: string, currentValue: boolean) => {
+    onAreaUpdate(areaId, { player_viewable: !currentValue });
   };
 
   const getAreaTypeColor = (areaType: string) => {
@@ -186,6 +193,24 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
                           placeholder="Description (optional)"
                           rows={2}
                         />
+                        {userRole === 'dm' && (
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`player-viewable-${area.id}`}
+                              checked={editForm.player_viewable || false}
+                              onCheckedChange={(checked) => 
+                                setEditForm({ ...editForm, player_viewable: checked as boolean })
+                              }
+                            />
+                            <label 
+                              htmlFor={`player-viewable-${area.id}`}
+                              className="text-sm text-amber-800 flex items-center cursor-pointer"
+                            >
+                              <Users className="h-3 w-3 mr-1" />
+                              Player viewable
+                            </label>
+                          </div>
+                        )}
                         <div className="flex space-x-2">
                           <Button size="sm" onClick={handleEditSave}>
                             Save
@@ -199,7 +224,15 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
                       <>
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <h4 className="font-medium text-amber-900">{area.area_name}</h4>
+                            <div className="flex items-center space-x-2">
+                              <h4 className="font-medium text-amber-900">{area.area_name}</h4>
+                              {area.player_viewable && (
+                                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                  <Users className="h-3 w-3 mr-1" />
+                                  Player Visible
+                                </Badge>
+                              )}
+                            </div>
                             <div className="flex items-center space-x-2 mt-1">
                               <Badge className={`text-xs ${getAreaTypeColor(area.area_type)}`}>
                                 {area.area_type}
@@ -212,6 +245,19 @@ const MapAreasManager: React.FC<MapAreasManagerProps> = ({
                           </div>
                           {userRole === 'dm' && (
                             <div className="flex space-x-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handlePlayerViewableToggle(area.id, area.player_viewable || false)}
+                                className="h-8 w-8 p-0"
+                                title={area.player_viewable ? "Hide from players" : "Show to players"}
+                              >
+                                {area.player_viewable ? (
+                                  <Users className="h-3 w-3 text-blue-600" />
+                                ) : (
+                                  <Eye className="h-3 w-3 text-gray-400" />
+                                )}
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Eye, Square } from 'lucide-react';
@@ -103,6 +104,7 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
             ? area.bounding_box as { x1: number; y1: number; x2: number; y2: number }
             : null,
           polygon_coordinates: polygonCoordinates,
+          player_viewable: area.player_viewable || false, // Include the new field
         };
       });
       
@@ -306,7 +308,8 @@ const MapAreasManagement: React.FC<MapAreasManagementProps> = ({ onBack }) => {
           description: description || null,
           polygon_coordinates: polygonJson as any, // Cast to any to satisfy Json type
           created_by: user.id,
-          is_visible: true // Default to visible
+          is_visible: true, // Default to visible
+          player_viewable: false // Default to not player viewable
         });
 
       if (error) throw error;
