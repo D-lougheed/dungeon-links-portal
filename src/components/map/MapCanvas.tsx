@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Pin, DistanceMeasurement, Map, MapArea } from './types';
+import { Pin, DistanceMeasurement, Map, MapArea, RegionType } from './types';
 
 interface MapCanvasProps {
   map: Map;
@@ -11,6 +11,8 @@ interface MapCanvasProps {
   onPinAdd: (x: number, y: number) => void;
   onDistanceAdd: (points: { x: number; y: number }[], distance: number) => void;
   userRole: string;
+  getAreaColor?: (areaType: string) => string;
+  regionTypes?: RegionType[];
 }
 
 const MapCanvas: React.FC<MapCanvasProps> = ({
@@ -22,7 +24,9 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
   activeMode,
   onPinAdd,
   onDistanceAdd,
-  userRole
+  userRole,
+  getAreaColor,
+  regionTypes = []
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -93,16 +97,17 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
     mapAreas.forEach(area => {
       if (!area.is_visible || !area.player_viewable) return;
 
-      // Draw polygon if coordinates exist
-      if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
-        ctx.fillStyle = `${area.area_type === 'forest' ? '#22c55e' : 
-                         area.area_type === 'mountain' ? '#a3a3a3' : 
-                         area.area_type === 'water' ? '#3b82f6' : 
-                         area.area_type === 'desert' ? '#f59e0b' : '#6b7280'}40`; // 40 for transparency
-        ctx.strokeStyle = area.area_type === 'forest' ? '#22c55e' : 
+      // Get color using the passed function or fallback to default logic
+      const areaColor = getAreaColor ? getAreaColor(area.area_type) : 
+                         area.area_type === 'forest' ? '#22c55e' : 
                          area.area_type === 'mountain' ? '#a3a3a3' : 
                          area.area_type === 'water' ? '#3b82f6' : 
                          area.area_type === 'desert' ? '#f59e0b' : '#6b7280';
+
+      // Draw polygon if coordinates exist
+      if (area.polygon_coordinates && area.polygon_coordinates.length > 0) {
+        ctx.fillStyle = `${areaColor}40`; // 40 for transparency
+        ctx.strokeStyle = areaColor;
         ctx.lineWidth = 2 / scale;
 
         ctx.beginPath();
@@ -134,14 +139,8 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
         const width = (box.x2 - box.x1) * map.width;
         const height = (box.y2 - box.y1) * map.height;
 
-        ctx.fillStyle = `${area.area_type === 'forest' ? '#22c55e' : 
-                         area.area_type === 'mountain' ? '#a3a3a3' : 
-                         area.area_type === 'water' ? '#3b82f6' : 
-                         area.area_type === 'desert' ? '#f59e0b' : '#6b7280'}40`; // 40 for transparency
-        ctx.strokeStyle = area.area_type === 'forest' ? '#22c55e' : 
-                         area.area_type === 'mountain' ? '#a3a3a3' : 
-                         area.area_type === 'water' ? '#3b82f6' : 
-                         area.area_type === 'desert' ? '#f59e0b' : '#6b7280';
+        ctx.fillStyle = `${areaColor}40`; // 40 for transparency
+        ctx.strokeStyle = areaColor;
         ctx.lineWidth = 2 / scale;
 
         ctx.fillRect(x, y, width, height);
@@ -154,7 +153,7 @@ const MapCanvas: React.FC<MapCanvasProps> = ({
         ctx.fillText(area.area_name, x + width / 2, y + height / 2);
       }
     });
-  }, [showAreas, mapAreas, map.width, map.height, scale]);
+  }, [showAreas, mapAreas, map.width, map.height, scale, getAreaColor]);
 
   // Draw everything on canvas
   const draw = useCallback(() => {
