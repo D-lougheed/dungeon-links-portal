@@ -161,7 +161,19 @@ const InteractiveMapAdmin: React.FC<InteractiveMapAdminProps> = ({ onBack }) => 
         .order('area_name');
 
       if (error) throw error;
-      setMapAreas(data || []);
+      
+      // Convert database data to MapArea interface with proper type casting
+      const convertedAreas: MapArea[] = (data || []).map(dbArea => ({
+        ...dbArea,
+        terrain_features: Array.isArray(dbArea.terrain_features) ? dbArea.terrain_features as string[] : null,
+        landmarks: Array.isArray(dbArea.landmarks) ? dbArea.landmarks as string[] : null,
+        bounding_box: dbArea.bounding_box as { x1: number; y1: number; x2: number; y2: number } | null,
+        polygon_coordinates: Array.isArray(dbArea.polygon_coordinates) 
+          ? dbArea.polygon_coordinates as { x: number; y: number }[] 
+          : null
+      }));
+      
+      setMapAreas(convertedAreas);
     } catch (error) {
       console.error('Error loading map areas:', error);
       toast({
